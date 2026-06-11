@@ -132,28 +132,37 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 
 ICON_PATHS = {
     "arrow-down-to-line": '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>',
-    "zap": '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+    "refresh": (
+        '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'
+        '<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>'
+    ),
+    "square": '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+    "hash": (
+        '<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/>'
+        '<line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>'
+    ),
     "circle": '<circle cx="12" cy="12" r="9"/>',
     "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     "loader": '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     "check": '<path d="M20 6 9 17l-5-5"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     "grip": (
-        '<circle cx="9" cy="5" r="1.4"/><circle cx="9" cy="12" r="1.4"/>'
-        '<circle cx="9" cy="19" r="1.4"/><circle cx="15" cy="5" r="1.4"/>'
-        '<circle cx="15" cy="12" r="1.4"/><circle cx="15" cy="19" r="1.4"/>'
+        '<circle cx="12" cy="5" r="1"/><circle cx="19" cy="5" r="1"/><circle cx="5" cy="5" r="1"/>'
+        '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>'
+        '<circle cx="12" cy="19" r="1"/><circle cx="19" cy="19" r="1"/><circle cx="5" cy="19" r="1"/>'
     ),
     "copy": (
-        '<rect x="9" y="9" width="13" height="13" rx="2"/>'
-        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
+        '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
+        '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'
     ),
     "folder": (
-        '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9'
-        'L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'
+        '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9'
+        'l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>'
+        '<circle cx="12" cy="13" r="1"/>'
     ),
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "trash": (
-        '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
+        '<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/>'
         '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
     ),
     "terminal": '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
@@ -221,6 +230,18 @@ class QueueWorker(QThread):
     def enqueue(self, row):
         self._queue.put(row)
 
+    def clear_pending(self):
+        """Drain not-yet-started jobs; returns the rows that were dequeued."""
+        drained = []
+        try:
+            while True:
+                item = self._queue.get_nowait()
+                if item is not None:
+                    drained.append(item)
+        except queue.Empty:
+            pass
+        return drained
+
     def stop(self):
         self._queue.put(None)
 
@@ -283,7 +304,7 @@ class DragChip(QLabel):
         layout.setContentsMargins(8, 4, 10, 4)
         layout.setSpacing(5)
         grip = QLabel()
-        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12, filled=True))
+        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12))
         text = QLabel("drag .md")
         text.setStyleSheet("color: #9fe0b8; font-size: 11px; font-weight: 600; background: transparent;")
         layout.addWidget(grip)
@@ -546,17 +567,24 @@ class MainPage(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(7)
+        logo = QLabel()
+        logo.setPixmap(icon_pixmap("hash", COLOR_ACCENT, 20))
         title = QLabel("tomd")
         title.setObjectName("titleLabel")
+        title_row.addWidget(logo)
+        title_row.addWidget(title)
+        title_row.addStretch()
         subtitle = QLabel("Drop files or folders anywhere in this window.")
         subtitle.setObjectName("subtitleLabel")
-        title_col.addWidget(title)
+        title_col.addLayout(title_row)
         title_col.addWidget(subtitle)
         header.addLayout(title_col)
         header.addStretch()
         self.auto_convert = QCheckBox("Auto-convert on drop")
-        self.auto_convert.setChecked(self.settings.value("auto_convert", True, type=bool))
-        self.auto_convert.toggled.connect(lambda v: self.settings.setValue("auto_convert", v))
+        self.auto_convert.setChecked(self.settings.value("auto_convert_on_drop", False, type=bool))
+        self.auto_convert.toggled.connect(lambda v: self.settings.setValue("auto_convert_on_drop", v))
         header.addWidget(self.auto_convert, alignment=Qt.AlignTop)
         root.addLayout(header)
 
@@ -605,10 +633,10 @@ class MainPage(QWidget):
         self.count_label = QLabel("")
         self.count_label.setObjectName("countLabel")
         self.run_button = QPushButton("Run")
-        self.run_button.setIcon(themed_icon("zap", "white", 14, filled=True))
+        self.run_button.setIcon(themed_icon("refresh", "white", 13))
         self.run_button.setObjectName("runButton")
         self.run_button.setEnabled(False)
-        self.run_button.clicked.connect(self.run_pending)
+        self.run_button.clicked.connect(self.on_run_clicked)
         bottom.addWidget(self.browse_button)
         bottom.addWidget(self.clear_button)
         bottom.addStretch()
@@ -675,16 +703,41 @@ class MainPage(QWidget):
 
     def refresh_chrome(self):
         pending = sum(1 for row in self.rows if row.state in (PENDING, ERROR))
+        busy = self.in_flight() > 0
         self.stack.setCurrentWidget(self.scroll if self.rows else self.drop_hint)
-        if not self.in_flight():
+        if not busy:
             self.count_label.setText(f"{len(self.rows)} file(s)" if self.rows else "")
-        self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
-        self.clear_button.setEnabled(bool(self.rows) and not self.in_flight())
+        if busy:
+            self.run_button.setText("Stop")
+            self.run_button.setIcon(themed_icon("square", "white", 12))
+            self.run_button.setToolTip("Stop after the current file; queued files go back to pending")
+            self.run_button.setEnabled(True)
+        else:
+            self.run_button.setText("Run")
+            self.run_button.setIcon(themed_icon("refresh", "white", 13))
+            self.run_button.setToolTip("")
+            self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
+        self.clear_button.setEnabled(bool(self.rows) and not busy)
 
     # ---- conversion queue ----
-    def run_pending(self):
-        self.enqueue_rows([row for row in self.rows if row.state in (PENDING, ERROR)])
+    def on_run_clicked(self):
+        if self.in_flight():
+            self.stop_queue()
+        else:
+            self.enqueue_rows([row for row in self.rows if row.state in (PENDING, ERROR)])
         self.refresh_chrome()
+
+    def stop_queue(self):
+        drained = self.worker.clear_pending() if self.worker else []
+        for row in drained:
+            row.set_state(PENDING)
+        self.batch_total -= len(drained)
+        if self.batch_done >= self.batch_total:
+            self.progress.hide()
+        else:
+            self.progress.setMaximum(max(self.batch_total, 1))
+        if drained:
+            self.window.toast.show_message(f"Stopped — {len(drained)} file(s) back to pending")
 
     def enqueue_rows(self, rows):
         if not rows or not self.worker:
@@ -801,10 +854,24 @@ class MainWindow(QMainWindow):
         hint.style().polish(hint)
 
 
+def checkbox_indicator_rule() -> str:
+    """QSS can only load indicator images from files, so write the checkmark
+    SVG into the app data dir and point a stylesheet rule at it."""
+    path = backend.app_data_dir() / "check-indicator.svg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M20 6 9 17l-5-5"/></svg>'
+    )
+    url = path.as_posix()
+    return f'QCheckBox::indicator:checked {{ image: url("{url}"); }}'
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(STYLE + checkbox_indicator_rule())
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

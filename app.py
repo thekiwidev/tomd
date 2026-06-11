@@ -127,7 +127,10 @@ class ConvertWorker(QThread):
         for index, source in self.jobs:
             self.file_started.emit(index)
             try:
-                result = converter.convert(str(source))
+                # convert_local() is the narrowest API for file paths; the
+                # permissive convert() also accepts URLs and streams, which
+                # this app never feeds it (see MarkItDown security notes).
+                result = converter.convert_local(str(source))
                 output = source.with_suffix(".md")
                 output.write_text(result.text_content, encoding="utf-8")
                 ok += 1

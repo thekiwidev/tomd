@@ -90,11 +90,11 @@ QPushButton#runButton, QPushButton#installButton {{
 }}
 QPushButton#runButton:hover, QPushButton#installButton:hover {{ background: {COLOR_ACCENT}; }}
 QPushButton#runButton:disabled, QPushButton#installButton:disabled {{ background: #3a3554; color: #837fa6; }}
-QPushButton.rowAction {{ padding: 4px 10px; font-size: 11px; background: #2a3d33; color: #9fe0b8; }}
+QPushButton.rowAction {{ padding: 3px 9px; font-size: 11px; background: #2a3d33; color: #9fe0b8; border-radius: 8px; }}
 QPushButton.rowAction:hover {{ background: #345043; }}
 #dragChip {{
     color: #9fe0b8; background: #2a3d33; border-radius: 8px;
-    padding: 4px 10px; font-size: 11px; font-weight: 600;
+    padding: 3px 9px; font-size: 11px; font-weight: 600;
 }}
 #countLabel, #envLabel {{ color: {COLOR_MUTED}; font-size: 12px; }}
 #envLabel {{ font-size: 10px; }}
@@ -168,6 +168,10 @@ ICON_PATHS = {
         '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
     ),
     "terminal": '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+    "file": (
+        '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>'
+        '<path d="M14 2v4a2 2 0 0 0 2 2h4"/>'
+    ),
 }
 
 
@@ -301,12 +305,13 @@ class DragChip(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("dragChip")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 10, 4)
-        layout.setSpacing(5)
+        layout.setContentsMargins(7, 3, 9, 3)
+        layout.setSpacing(4)
         grip = QLabel()
-        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12))
-        grip.setFixedSize(14, 14)
+        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 10))
+        grip.setFixedSize(12, 12)
         grip.setAlignment(Qt.AlignCenter)
         grip.setAttribute(Qt.WA_TransparentForMouseEvents)
         text = QLabel("drag .md")
@@ -315,14 +320,20 @@ class DragChip(QWidget):
         layout.addWidget(grip)
         layout.addWidget(text)
         self.md_path = None
+        self._press_pos = None
         self.setCursor(Qt.OpenHandCursor)
         self.setToolTip("Drag this into Finder, an editor, or anywhere that accepts files")
 
     def mousePressEvent(self, event):
-        self._press_pos = event.position().toPoint()
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+            self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.OpenHandCursor)
 
     def mouseMoveEvent(self, event):
-        if self.md_path is None:
+        if self.md_path is None or self._press_pos is None:
             return
         if (event.position().toPoint() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
             return
@@ -331,6 +342,49 @@ class DragChip(QWidget):
         mime.setUrls([QUrl.fromLocalFile(str(self.md_path))])
         drag.setMimeData(mime)
         drag.exec(Qt.CopyAction)
+        self.setCursor(Qt.OpenHandCursor)
+
+
+class SelectBox(QLabel):
+    """Small checkbox-style toggle that lives at the left edge of a FileRow."""
+
+    toggled = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._checked = False
+        self.setFixedSize(18, 18)
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
+        self._refresh()
+
+    def _refresh(self):
+        if self._checked:
+            self.setPixmap(icon_pixmap("check", COLOR_ACCENT, 11, filled=False))
+            self.setStyleSheet(
+                "background: #3a3070; border: 1.5px solid #7c6cf0; border-radius: 4px;"
+            )
+        else:
+            self.setPixmap(QPixmap())
+            self.setStyleSheet(
+                "background: #22232a; border: 1.5px solid #444752; border-radius: 4px;"
+            )
+
+    @property
+    def checked(self):
+        return self._checked
+
+    def set_checked(self, value: bool):
+        if self._checked == value:
+            return
+        self._checked = value
+        self._refresh()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._checked = not self._checked
+            self._refresh()
+            self.toggled.emit(self._checked)
 
 
 class FileRow(QFrame):
@@ -353,32 +407,50 @@ class FileRow(QFrame):
         self.selected = False
         self._spin_angle = 0
         self._spin_timer = QTimer(self, interval=80, timeout=self._spin)
-        self._loader_pixmap = icon_pixmap("loader", COLOR_AMBER, 13)
+        self._loader_pixmap = icon_pixmap("loader", COLOR_AMBER, 11)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 9, 12, 9)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+
+        self.select_box = SelectBox()
+        self.select_box.toggled.connect(lambda checked: self.set_selected(checked))
+        layout.addWidget(self.select_box)
 
         self.status_label = QLabel()
-        self.status_label.setFixedSize(20, 20)
+        self.status_label.setFixedSize(16, 16)
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setPixmap(icon_pixmap("circle", COLOR_MUTED, 13))
+        self.status_label.setPixmap(icon_pixmap("circle", COLOR_MUTED, 11))
         layout.addWidget(self.status_label)
 
         text_col = QVBoxLayout()
         text_col.setSpacing(1)
         self.name_label = QLabel(source.name)
         self.name_label.setObjectName("fileName")
-        self.sub_label = QLabel(str(source.parent))
+        self.name_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        # Sub row: file icon initially, replaced by text on status changes.
+        sub_row = QHBoxLayout()
+        sub_row.setSpacing(4)
+        sub_row.setContentsMargins(0, 0, 0, 0)
+        self._sub_icon = QLabel()
+        self._sub_icon.setPixmap(icon_pixmap("file", COLOR_MUTED, 10))
+        self._sub_icon.setFixedSize(12, 12)
+        self._sub_icon.setAlignment(Qt.AlignCenter)
+        self.sub_label = QLabel()
         self.sub_label.setObjectName("fileSub")
-        for label in (self.name_label, self.sub_label):
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.sub_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.sub_label.hide()
+        sub_row.addWidget(self._sub_icon)
+        sub_row.addWidget(self.sub_label)
+        sub_row.addStretch()
+
         text_col.addWidget(self.name_label)
-        text_col.addWidget(self.sub_label)
+        text_col.addLayout(sub_row)
         layout.addLayout(text_col, stretch=1)
 
         self.copy_button = QPushButton("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 12))
+        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 10))
         self.copy_button.setProperty("class", "rowAction")
         self.copy_button.setToolTip("Copy the markdown content to the clipboard")
         self.copy_button.clicked.connect(self.copy_markdown)
@@ -386,7 +458,7 @@ class FileRow(QFrame):
         self.drag_chip = DragChip()
 
         self.reveal_button = QPushButton("Reveal")
-        self.reveal_button.setIcon(themed_icon("folder", "#9fe0b8", 12))
+        self.reveal_button.setIcon(themed_icon("folder", "#9fe0b8", 10))
         self.reveal_button.setProperty("class", "rowAction")
         self.reveal_button.setToolTip("Show the .md file in Finder")
         self.reveal_button.clicked.connect(self.reveal)
@@ -395,15 +467,9 @@ class FileRow(QFrame):
             layout.addWidget(widget)
             widget.hide()
 
-        self.setCursor(Qt.PointingHandCursor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.set_selected(not self.selected)
-        super().mousePressEvent(event)
-
     def set_selected(self, value: bool):
         self.selected = value
+        self.select_box.set_checked(value)
         self.setProperty("selected", "true" if value else "false")
         self.style().unpolish(self)
         self.style().polish(self)
@@ -414,6 +480,15 @@ class FileRow(QFrame):
         rotated = self._loader_pixmap.transformed(QTransform().rotate(self._spin_angle), Qt.SmoothTransformation)
         self.status_label.setPixmap(rotated)
 
+    def _show_sub_text(self, text: str):
+        self._sub_icon.hide()
+        self.sub_label.setText(text)
+        self.sub_label.show()
+
+    def _show_sub_icon(self):
+        self.sub_label.hide()
+        self._sub_icon.show()
+
     def set_state(self, state, detail=None):
         self.state = state
         icon_name, color = self.STATUS[state]
@@ -421,22 +496,24 @@ class FileRow(QFrame):
             self._spin_timer.start()
         else:
             self._spin_timer.stop()
-            self.status_label.setPixmap(icon_pixmap(icon_name, color, 13))
+            self.status_label.setPixmap(icon_pixmap(icon_name, color, 11))
         self.setProperty("state", {DONE: "done", ERROR: "error"}.get(state, ""))
         self.sub_label.setProperty("state", "error" if state == ERROR else "")
         if state == QUEUED:
-            self.sub_label.setText("Queued…")
+            self._show_sub_text("Queued…")
         elif state == RUNNING:
-            self.sub_label.setText("Converting…")
+            self._show_sub_text("Converting…")
         elif state == DONE:
             self.md_path = Path(detail)
             self.drag_chip.md_path = self.md_path
-            self.sub_label.setText(f"→ {self.md_path.name}")
+            self._show_sub_text(f"→ {self.md_path.name}")
             for widget in (self.copy_button, self.drag_chip, self.reveal_button):
                 widget.show()
         elif state == ERROR:
-            self.sub_label.setText(detail or "Conversion failed")
+            self._show_sub_text(detail or "Conversion failed")
             self.sub_label.setToolTip(detail or "")
+        else:
+            self._show_sub_icon()
         for widget in (self, self.sub_label):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
@@ -445,12 +522,12 @@ class FileRow(QFrame):
         if self.md_path and self.md_path.exists():
             QGuiApplication.clipboard().setText(self.md_path.read_text(encoding="utf-8"))
             self.copy_button.setText("Copied")
-            self.copy_button.setIcon(themed_icon("check", "#9fe0b8", 12))
+            self.copy_button.setIcon(themed_icon("check", "#9fe0b8", 10))
             QTimer.singleShot(1500, self._reset_copy_button)
 
     def _reset_copy_button(self):
         self.copy_button.setText("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 12))
+        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 10))
 
     def reveal(self):
         if self.md_path:
@@ -647,26 +724,26 @@ class MainPage(QWidget):
 
         bottom = QHBoxLayout()
         self.browse_button = QPushButton("Add Files…")
-        self.browse_button.setIcon(themed_icon("plus", "#d6d8e0", 13))
+        self.browse_button.setIcon(themed_icon("plus", "#d6d8e0", 11))
         self.browse_button.clicked.connect(self.browse_files)
         self.clear_button = QPushButton("Clear")
-        self.clear_button.setIcon(themed_icon("trash", "#d6d8e0", 13))
+        self.clear_button.setIcon(themed_icon("trash", "#d6d8e0", 11))
         self.clear_button.clicked.connect(self.clear_rows)
         self.remove_selected_button = QPushButton("Remove Selected")
-        self.remove_selected_button.setIcon(themed_icon("trash", "#e07a7f", 12))
+        self.remove_selected_button.setIcon(themed_icon("trash", "#e07a7f", 10))
         self.remove_selected_button.setProperty("class", "rowAction")
-        self.remove_selected_button.setStyleSheet("QPushButton { background: #3a2020; color: #e07a7f; } QPushButton:hover { background: #4a2828; }")
+        self.remove_selected_button.setStyleSheet("QPushButton { background: #3a2020; color: #e07a7f; border-radius: 8px; } QPushButton:hover { background: #4a2828; }")
         self.remove_selected_button.clicked.connect(self.remove_selected)
         self.remove_selected_button.hide()
         self.reveal_selected_button = QPushButton("Reveal Selected")
-        self.reveal_selected_button.setIcon(themed_icon("folder", "#9fe0b8", 12))
+        self.reveal_selected_button.setIcon(themed_icon("folder", "#9fe0b8", 10))
         self.reveal_selected_button.setProperty("class", "rowAction")
         self.reveal_selected_button.clicked.connect(self.reveal_selected)
         self.reveal_selected_button.hide()
         self.count_label = QLabel("")
         self.count_label.setObjectName("countLabel")
         self.run_button = QPushButton("Run")
-        self.run_button.setIcon(themed_icon("refresh", "white", 13))
+        self.run_button.setIcon(themed_icon("refresh", "white", 11))
         self.run_button.setObjectName("runButton")
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self.on_run_clicked)
@@ -762,12 +839,12 @@ class MainPage(QWidget):
             self.count_label.setText(f"{len(self.rows)} file(s)" if self.rows else "")
         if busy:
             self.run_button.setText("Stop")
-            self.run_button.setIcon(themed_icon("square", "white", 12))
+            self.run_button.setIcon(themed_icon("square", "white", 11))
             self.run_button.setToolTip("Stop after the current file; queued files go back to pending")
             self.run_button.setEnabled(True)
         else:
             self.run_button.setText("Run")
-            self.run_button.setIcon(themed_icon("refresh", "white", 13))
+            self.run_button.setIcon(themed_icon("refresh", "white", 11))
             self.run_button.setToolTip("")
             self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
         self.clear_button.setEnabled(bool(self.rows) and not busy)

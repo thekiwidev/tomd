@@ -14,4 +14,5 @@ dev = [
     # finds a markitdown CLI on PATH during development.
     "markitdown[all]>=0.1.5",
     "pyinstaller>=6.20.0",
+    "watchfiles>=1.2.0",
 ]

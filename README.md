@@ -45,7 +45,7 @@ Once set up, you land on the main window. The dashed area is your drop target â€
 
 With **Auto-convert on drop** enabled, tomd starts converting the moment a file lands. Drop one file, watch it convert â€” no extra clicks.
 
-<video src="assets/auto-run-single-file.mov" controls width="700"></video>
+![Auto-convert single file demo](assets/auto-run-single-file.gif)
 
 ---
 
@@ -53,7 +53,7 @@ With **Auto-convert on drop** enabled, tomd starts converting the moment a file 
 
 Same as above, but with a batch. Drop a folder or several files at once and tomd queues and converts them all automatically, one after another.
 
-<video src="assets/auto-run-multi-files.mov" controls width="700"></video>
+![Auto-convert multiple files demo](assets/auto-run-multi-files.gif)
 
 ---
 
@@ -61,7 +61,7 @@ Same as above, but with a batch. Drop a folder or several files at once and tomd
 
 With auto-convert off, dropped files sit in the queue as pending. You can click the checkbox on any row to select it, then use **Remove Selected** to trim the list before running. Hit **Run** when you're ready and tomd converts whatever remains.
 
-<video src="assets/auto-run-disabled.mov" controls width="700"></video>
+![Manual mode demo](assets/auto-run-disabled.gif)
 
 ---
 

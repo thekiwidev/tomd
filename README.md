@@ -33,9 +33,29 @@ If you already have `markitdown` installed, tomd uses yours and never asks anyth
 
 Grab the latest build from [Releases](../../releases):
 
-- **macOS** — download `tomd.dmg`, open it, drag **tomd** into **Applications**.
-  First launch: right-click → **Open** (the app is unsigned).
+- **macOS** — see below.
 - **Windows** — download `tomd.exe` and run it.
+
+### macOS — Gatekeeper workaround
+
+tomd is currently unsigned (no Apple Developer certificate yet), so macOS will block it on first install. Pick either option:
+
+**Option A — remove the quarantine flag before opening the DMG**
+
+```bash
+xattr -d com.apple.quarantine ~/Downloads/tomd.dmg
+```
+
+Then open the DMG and drag tomd into Applications as normal.
+
+**Option B — allow it after the fact via System Settings**
+
+1. Download `tomd.dmg`, open it, drag **tomd** into **Applications**, and try to open it.
+2. macOS will show a "cannot be opened" dialog — click **Done**.
+3. Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to tomd.
+4. Confirm in the follow-up dialog.
+
+Either option is a one-time step — subsequent launches open normally.
 
 ## Run from source
 

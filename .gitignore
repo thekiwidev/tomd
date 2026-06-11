@@ -13,3 +13,4 @@ wheels/
 *.spec
 assets/tomd.iconset/
 assets/tomd.icns
+.DS_Store

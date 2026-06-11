@@ -5,11 +5,13 @@ description = "Drag & drop GUI for Microsoft MarkItDown — convert anything to 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "markitdown[all]>=0.1.5",
     "pyside6>=6.11.1",
 ]
 
 [dependency-groups]
 dev = [
+    # markitdown is NOT bundled into the app; it's here so `uv run python app.py`
+    # finds a markitdown CLI on PATH during development.
+    "markitdown[all]>=0.1.5",
     "pyinstaller>=6.20.0",
 ]

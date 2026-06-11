@@ -1,32 +1,39 @@
 """tomd — drag & drop anything, get Markdown.
 
-A tiny GUI wrapper around Microsoft's MarkItDown. Drop files or folders,
-hit Run, and a .md file appears next to each source file. Each converted
-row lets you copy the markdown, drag the .md file out, or reveal it in
-Finder / Explorer.
+A thin GUI over the `markitdown` CLI by Microsoft
+(https://github.com/microsoft/markitdown). The app does no conversion
+itself: it runs the markitdown installed on this device, exactly as you
+would in a terminal. On first launch it checks the device for the
+requirements and offers to install them into a private environment.
 """
 
+import queue
 import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QMimeData, QSettings, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDrag, QGuiApplication, QIcon, QPainter, QPixmap, QTransform
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QStackedLayout,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+
+import backend
 
 APP_NAME = "tomd"
 
@@ -39,7 +46,7 @@ SUPPORTED_EXTENSIONS = {
     ".ipynb", ".zip",
 }
 
-PENDING, RUNNING, DONE, ERROR = range(4)
+PENDING, QUEUED, RUNNING, DONE, ERROR = range(5)
 
 # Theme palette, shared between the stylesheet and tinted icons.
 COLOR_TEXT = "#e8e9ee"
@@ -51,7 +58,7 @@ COLOR_RED = "#e07a7f"
 
 STYLE = f"""
 * {{ font-family: -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }}
-QMainWindow, #centralWidget {{ background: #15161a; }}
+QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
 #titleLabel {{ color: #f2f3f7; font-size: 22px; font-weight: 700; }}
 #subtitleLabel {{ color: {COLOR_MUTED}; font-size: 13px; }}
 #dropHint {{
@@ -76,18 +83,25 @@ QPushButton {{
 QPushButton:hover {{ background: #343742; }}
 QPushButton:pressed {{ background: #3d404d; }}
 QPushButton:disabled {{ background: #22232a; color: #565963; }}
-QPushButton#runButton {{
+QPushButton#runButton, QPushButton#installButton {{
     background: #6c5ce7; color: white; font-size: 13px; padding: 9px 22px;
 }}
-QPushButton#runButton:hover {{ background: {COLOR_ACCENT}; }}
-QPushButton#runButton:disabled {{ background: #3a3554; color: #837fa6; }}
+QPushButton#runButton:hover, QPushButton#installButton:hover {{ background: {COLOR_ACCENT}; }}
+QPushButton#runButton:disabled, QPushButton#installButton:disabled {{ background: #3a3554; color: #837fa6; }}
 QPushButton.rowAction {{ padding: 4px 10px; font-size: 11px; background: #2a3d33; color: #9fe0b8; }}
 QPushButton.rowAction:hover {{ background: #345043; }}
 #dragChip {{
     color: #9fe0b8; background: #2a3d33; border-radius: 8px;
     padding: 4px 10px; font-size: 11px; font-weight: 600;
 }}
-#countLabel {{ color: {COLOR_MUTED}; font-size: 12px; }}
+#countLabel, #envLabel {{ color: {COLOR_MUTED}; font-size: 12px; }}
+#envLabel {{ font-size: 10px; }}
+QCheckBox {{ color: #b6b9c2; font-size: 12px; spacing: 6px; }}
+QCheckBox::indicator {{
+    width: 15px; height: 15px; border-radius: 4px;
+    border: 1px solid #444752; background: #22232a;
+}}
+QCheckBox::indicator:checked {{ background: #6c5ce7; border-color: #6c5ce7; }}
 QProgressBar {{
     background: #22232a; border: none; border-radius: 3px;
     min-height: 6px; max-height: 6px;
@@ -99,6 +113,14 @@ QProgressBar::chunk {{ background: #6c5ce7; border-radius: 3px; }}
 }}
 #toast[kind="error"] {{ background: #4a2a2e; color: #f0b6ba; }}
 #toast[kind="success"] {{ background: #24402f; color: #a5e6bd; }}
+#setupHeading {{ color: #f2f3f7; font-size: 20px; font-weight: 700; }}
+#setupBody {{ color: #b6b9c2; font-size: 13px; }}
+#checkItem {{ color: #b6b9c2; font-size: 13px; }}
+#setupLog {{
+    background: #101114; color: #9da1ab; border: 1px solid #26272e;
+    border-radius: 10px; font-family: Menlo, Consolas, monospace; font-size: 11px;
+    padding: 6px;
+}}
 QScrollBar:vertical {{ background: transparent; width: 8px; }}
 QScrollBar::handle:vertical {{ background: #34363f; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
@@ -112,6 +134,7 @@ ICON_PATHS = {
     "arrow-down-to-line": '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>',
     "zap": '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
     "circle": '<circle cx="12" cy="12" r="9"/>',
+    "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     "loader": '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     "check": '<path d="M20 6 9 17l-5-5"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -133,6 +156,7 @@ ICON_PATHS = {
         '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
         '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
     ),
+    "terminal": '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
 }
 
 
@@ -182,42 +206,43 @@ def reveal_in_file_manager(path: Path):
         subprocess.Popen(["xdg-open", str(path.parent)])
 
 
-class ConvertWorker(QThread):
-    """Runs MarkItDown over the queued files off the UI thread."""
+class QueueWorker(QThread):
+    """Sequential conversion queue. One markitdown subprocess at a time."""
 
-    preparing = Signal()
-    file_started = Signal(int, str)
-    file_done = Signal(int, str)
-    file_failed = Signal(int, str, str)
-    all_finished = Signal(int, int)
+    job_started = Signal(object)
+    job_done = Signal(object, str)
+    job_failed = Signal(object, str)
 
-    def __init__(self, jobs, parent=None):
+    def __init__(self, markitdown_exe: str, parent=None):
         super().__init__(parent)
-        self.jobs = jobs  # list of (row_index, source_path)
+        self.markitdown_exe = markitdown_exe
+        self._queue = queue.Queue()
+
+    def enqueue(self, row):
+        self._queue.put(row)
+
+    def stop(self):
+        self._queue.put(None)
 
     def run(self):
-        # Importing markitdown pulls in heavy dependencies; in the bundled
-        # app this can take several seconds, so tell the UI it's happening.
-        self.preparing.emit()
-        from markitdown import MarkItDown
+        while True:
+            row = self._queue.get()
+            if row is None:
+                break
+            self.job_started.emit(row)
+            ok, detail = backend.convert_file(self.markitdown_exe, row.source)
+            (self.job_done if ok else self.job_failed).emit(row, detail)
 
-        converter = MarkItDown()
-        ok = failed = 0
-        for index, source in self.jobs:
-            self.file_started.emit(index, source.name)
-            try:
-                # convert_local() is the narrowest API for file paths; the
-                # permissive convert() also accepts URLs and streams, which
-                # this app never feeds it (see MarkItDown security notes).
-                result = converter.convert_local(str(source))
-                output = source.with_suffix(".md")
-                output.write_text(result.text_content, encoding="utf-8")
-                ok += 1
-                self.file_done.emit(index, str(output))
-            except Exception as exc:  # noqa: BLE001 — surface every failure per-row
-                failed += 1
-                self.file_failed.emit(index, source.name, str(exc))
-        self.all_finished.emit(ok, failed)
+
+class SetupWorker(QThread):
+    """Installs markitdown[all] into tomd's private environment."""
+
+    log_line = Signal(str)
+    finished_setup = Signal(bool, str)
+
+    def run(self):
+        ok, error = backend.install_markitdown(self.log_line.emit)
+        self.finished_setup.emit(ok, error)
 
 
 class Toast(QLabel):
@@ -285,6 +310,7 @@ class DragChip(QLabel):
 class FileRow(QFrame):
     STATUS = {
         PENDING: ("circle", COLOR_MUTED),
+        QUEUED: ("clock", COLOR_MUTED),
         RUNNING: ("loader", COLOR_AMBER),
         DONE: ("check", COLOR_GREEN),
         ERROR: ("x", COLOR_RED),
@@ -355,7 +381,9 @@ class FileRow(QFrame):
             self.status_label.setPixmap(icon_pixmap(icon_name, color, 13))
         self.setProperty("state", {DONE: "done", ERROR: "error"}.get(state, ""))
         self.sub_label.setProperty("state", "error" if state == ERROR else "")
-        if state == RUNNING:
+        if state == QUEUED:
+            self.sub_label.setText("Queued…")
+        elif state == RUNNING:
             self.sub_label.setText("Converting…")
         elif state == DONE:
             self.md_path = Path(detail)
@@ -386,31 +414,151 @@ class FileRow(QFrame):
             reveal_in_file_manager(self.md_path)
 
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle(APP_NAME)
-        self.resize(620, 680)
-        self.setMinimumSize(480, 420)
-        self.setAcceptDrops(True)
+class SetupPage(QWidget):
+    """First-run screen: shows what the device is missing and installs it."""
+
+    setup_complete = Signal(str)  # path to the markitdown executable
+
+    def __init__(self, report: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("setupPage")
+        self.worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("One-time setup")
+        heading.setObjectName("setupHeading")
+        body = QLabel(
+            "tomd is a GUI for Microsoft's MarkItDown — the conversion runs on "
+            "your device, not inside this app. MarkItDown wasn't found, so tomd "
+            "will install it into a private environment at:\n"
+            f"{backend.managed_venv_dir()}"
+        )
+        body.setObjectName("setupBody")
+        body.setWordWrap(True)
+        layout.addWidget(heading)
+        layout.addWidget(body)
+
+        self.check_labels = {}
+        for key, label_text in (
+            ("python", "Python 3.10+"),
+            ("uv", "uv (optional, used if present)"),
+            ("markitdown", "markitdown CLI"),
+        ):
+            row = QHBoxLayout()
+            icon_label = QLabel()
+            icon_label.setFixedSize(18, 18)
+            text_label = QLabel(label_text)
+            text_label.setObjectName("checkItem")
+            row.addWidget(icon_label)
+            row.addWidget(text_label)
+            row.addStretch()
+            layout.addLayout(row)
+            self.check_labels[key] = (icon_label, text_label)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("setupLog")
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlaceholderText("Setup output will appear here…")
+        layout.addWidget(self.log_view, stretch=1)
+
+        button_row = QHBoxLayout()
+        self.recheck_button = QPushButton("Re-check")
+        self.recheck_button.clicked.connect(self.recheck)
+        self.install_button = QPushButton("Install MarkItDown")
+        self.install_button.setObjectName("installButton")
+        self.install_button.setIcon(themed_icon("terminal", "white", 13))
+        self.install_button.clicked.connect(self.start_install)
+        button_row.addWidget(self.recheck_button)
+        button_row.addStretch()
+        button_row.addWidget(self.install_button)
+        layout.addLayout(button_row)
+
+        self.update_checks(report)
+
+    def update_checks(self, report: dict):
+        def mark(key, present, text):
+            icon_label, text_label = self.check_labels[key]
+            name, color = ("check", COLOR_GREEN) if present else ("x", COLOR_RED)
+            icon_label.setPixmap(icon_pixmap(name, color, 13))
+            text_label.setText(text)
+
+        python_text = "Python 3.10+"
+        if report["python"]:
+            python_text += f" — found {report['python_version']} at {report['python']}"
+        else:
+            python_text += " — not found"
+        mark("python", bool(report["python"]), python_text)
+        mark("uv", bool(report["uv"]), f"uv — {report['uv'] or 'not found (optional)'}")
+        mark("markitdown", bool(report["markitdown"]), f"markitdown CLI — {report['markitdown'] or 'not installed'}")
+        # uv can bootstrap its own Python, so either one unblocks the install.
+        self.install_button.setEnabled(bool(report["python"] or report["uv"]) and not report["markitdown"])
+
+    def recheck(self):
+        report = backend.environment_report()
+        self.update_checks(report)
+        if report["markitdown"]:
+            self.setup_complete.emit(report["markitdown"])
+
+    def start_install(self):
+        self.install_button.setEnabled(False)
+        self.recheck_button.setEnabled(False)
+        self.log_view.clear()
+        self.worker = SetupWorker(self)
+        self.worker.log_line.connect(self.append_log)
+        self.worker.finished_setup.connect(self.on_finished)
+        self.worker.start()
+
+    def append_log(self, line: str):
+        self.log_view.appendPlainText(line)
+        self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
+
+    def on_finished(self, ok: bool, error: str):
+        self.recheck_button.setEnabled(True)
+        if ok:
+            self.append_log("✓ Setup complete.")
+            self.setup_complete.emit(str(backend.venv_executable("markitdown")))
+        else:
+            self.append_log(f"Setup failed: {error}")
+            self.install_button.setEnabled(True)
+
+
+class MainPage(QWidget):
+    """The converter UI: drop zone, queue, progress, actions."""
+
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
+        self.setObjectName("mainPage")
+        self.window = window
         self.rows = []
         self.worker = None
-        self.total_jobs = 0
-        self.completed_jobs = 0
+        self.markitdown_exe = None
+        self.batch_total = 0
+        self.batch_done = 0
+        self.settings = QSettings("thekiwidev", "tomd")
 
-        central = QWidget()
-        central.setObjectName("centralWidget")
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(12)
 
+        header = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
         title = QLabel("tomd")
         title.setObjectName("titleLabel")
-        subtitle = QLabel("Drop files or folders anywhere in this window, then hit Run.")
+        subtitle = QLabel("Drop files or folders anywhere in this window.")
         subtitle.setObjectName("subtitleLabel")
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        header.addLayout(title_col)
+        header.addStretch()
+        self.auto_convert = QCheckBox("Auto-convert on drop")
+        self.auto_convert.setChecked(self.settings.value("auto_convert", True, type=bool))
+        self.auto_convert.toggled.connect(lambda v: self.settings.setValue("auto_convert", v))
+        header.addWidget(self.auto_convert, alignment=Qt.AlignTop)
+        root.addLayout(header)
 
         # Stacked area: big drop hint when empty, file list once populated.
         self.stack = QStackedLayout()
@@ -460,7 +608,7 @@ class MainWindow(QMainWindow):
         self.run_button.setIcon(themed_icon("zap", "white", 14, filled=True))
         self.run_button.setObjectName("runButton")
         self.run_button.setEnabled(False)
-        self.run_button.clicked.connect(self.start_conversion)
+        self.run_button.clicked.connect(self.run_pending)
         bottom.addWidget(self.browse_button)
         bottom.addWidget(self.clear_button)
         bottom.addStretch()
@@ -468,34 +616,27 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.run_button)
         root.addLayout(bottom)
 
-        self.toast = Toast(central)
+        self.env_label = QLabel("")
+        self.env_label.setObjectName("envLabel")
+        root.addWidget(self.env_label)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.toast.isVisible():
-            self.toast.reposition()
+    # ---- environment ----
+    def set_markitdown(self, exe: str):
+        self.markitdown_exe = exe
+        self.env_label.setText(f"using {exe}")
+        if self.worker is None:
+            self.worker = QueueWorker(exe, parent=self)
+            self.worker.job_started.connect(self.on_job_started)
+            self.worker.job_done.connect(self.on_job_done)
+            self.worker.job_failed.connect(self.on_job_failed)
+            self.worker.start()
+        else:
+            self.worker.markitdown_exe = exe
 
-    # ---- drag & drop in ----
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            self._set_drag_over(True)
-            event.acceptProposedAction()
-
-    def dragLeaveEvent(self, event):
-        self._set_drag_over(False)
-
-    def dropEvent(self, event):
-        self._set_drag_over(False)
-        added = self.add_files(collect_paths(event.mimeData().urls()))
-        if not added:
-            self.toast.show_message("Nothing convertible in that drop", kind="error")
-        event.acceptProposedAction()
-
-    def _set_drag_over(self, over: bool):
-        self.drop_hint.setProperty("dragOver", over)
-        self.hint_icon.setPixmap(icon_pixmap("arrow-down-to-line", "#b9b0fa" if over else COLOR_MUTED, 44))
-        self.drop_hint.style().unpolish(self.drop_hint)
-        self.drop_hint.style().polish(self.drop_hint)
+    def shutdown(self):
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait(2000)
 
     # ---- file management ----
     def browse_files(self):
@@ -504,85 +645,160 @@ class MainWindow(QMainWindow):
 
     def add_files(self, paths) -> int:
         existing = {row.source for row in self.rows}
-        added = 0
+        new_rows = []
         for path in paths:
             if path in existing:
                 continue
             existing.add(path)
             row = FileRow(path)
             self.rows.append(row)
+            new_rows.append(row)
             self.list_layout.insertWidget(self.list_layout.count() - 1, row)
-            added += 1
+        if new_rows and self.auto_convert.isChecked() and self.markitdown_exe:
+            self.enqueue_rows(new_rows)
         self.refresh_chrome()
-        return added
+        return len(new_rows)
 
     def clear_rows(self):
-        if self.worker and self.worker.isRunning():
+        if self.in_flight():
             return
         for row in self.rows:
             row.setParent(None)
             row.deleteLater()
         self.rows = []
+        self.batch_total = self.batch_done = 0
         self.progress.hide()
         self.refresh_chrome()
+
+    def in_flight(self) -> int:
+        return self.batch_total - self.batch_done
 
     def refresh_chrome(self):
         pending = sum(1 for row in self.rows if row.state in (PENDING, ERROR))
         self.stack.setCurrentWidget(self.scroll if self.rows else self.drop_hint)
-        busy = bool(self.worker and self.worker.isRunning())
-        if not busy:
+        if not self.in_flight():
             self.count_label.setText(f"{len(self.rows)} file(s)" if self.rows else "")
-        self.run_button.setEnabled(pending > 0 and not busy)
-        self.clear_button.setEnabled(bool(self.rows) and not busy)
-        self.browse_button.setEnabled(not busy)
+        self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
+        self.clear_button.setEnabled(bool(self.rows) and not self.in_flight())
 
-    # ---- conversion ----
-    def start_conversion(self):
-        jobs = [(i, row.source) for i, row in enumerate(self.rows) if row.state in (PENDING, ERROR)]
-        if not jobs:
-            return
-        self.total_jobs = len(jobs)
-        self.completed_jobs = 0
-        self.worker = ConvertWorker(jobs, parent=self)
-        self.worker.preparing.connect(self.on_preparing)
-        self.worker.file_started.connect(self.on_file_started)
-        self.worker.file_done.connect(self.on_file_done)
-        self.worker.file_failed.connect(self.on_file_failed)
-        self.worker.all_finished.connect(self.on_all_finished)
-        self.worker.start()
+    # ---- conversion queue ----
+    def run_pending(self):
+        self.enqueue_rows([row for row in self.rows if row.state in (PENDING, ERROR)])
         self.refresh_chrome()
 
-    def on_preparing(self):
-        self.count_label.setText("Loading converter…")
-        self.progress.setRange(0, 0)  # indeterminate while markitdown imports
+    def enqueue_rows(self, rows):
+        if not rows or not self.worker:
+            return
+        if not self.in_flight():
+            self.batch_total = self.batch_done = 0
+        for row in rows:
+            row.set_state(QUEUED)
+            self.batch_total += 1
+            self.worker.enqueue(row)
+        self.progress.setRange(0, self.batch_total)
+        self.progress.setValue(self.batch_done)
         self.progress.show()
 
-    def on_file_started(self, index, name):
-        if self.progress.maximum() == 0:
-            self.progress.setRange(0, self.total_jobs)
-        self.rows[index].set_state(RUNNING)
-        self.count_label.setText(f"Converting {self.completed_jobs + 1}/{self.total_jobs} — {name}")
+    def on_job_started(self, row):
+        row.set_state(RUNNING)
+        self.count_label.setText(f"Converting {self.batch_done + 1}/{self.batch_total} — {row.source.name}")
 
-    def on_file_done(self, index, output):
-        self.rows[index].set_state(DONE, output)
-        self.completed_jobs += 1
-        self.progress.setValue(self.completed_jobs)
+    def on_job_done(self, row, output):
+        row.set_state(DONE, output)
+        self._job_finished()
 
-    def on_file_failed(self, index, name, error):
-        self.rows[index].set_state(ERROR, error)
-        self.completed_jobs += 1
-        self.progress.setValue(self.completed_jobs)
-        self.toast.show_message(f"Could not convert {name}", kind="error")
+    def on_job_failed(self, row, error):
+        row.set_state(ERROR, error)
+        self.window.toast.show_message(f"Could not convert {row.source.name}", kind="error")
+        self._job_finished()
 
-    def on_all_finished(self, ok, failed):
-        if failed:
-            self.count_label.setText(f"Done — {ok} converted, {failed} failed")
-            self.toast.show_message(f"{ok} converted, {failed} failed — see rows for details", kind="error")
-        else:
-            self.count_label.setText(f"Done — {ok} converted")
-            self.toast.show_message(f"All {ok} file(s) converted", kind="success")
-        QTimer.singleShot(2500, self.progress.hide)
+    def _job_finished(self):
+        self.batch_done += 1
+        self.progress.setMaximum(self.batch_total)
+        self.progress.setValue(self.batch_done)
+        if self.batch_done >= self.batch_total:
+            ok = sum(1 for row in self.rows if row.state == DONE)
+            failed = sum(1 for row in self.rows if row.state == ERROR)
+            if failed:
+                self.count_label.setText(f"Done — {ok} converted, {failed} failed")
+                self.window.toast.show_message(f"{ok} converted, {failed} failed", kind="error")
+            else:
+                self.count_label.setText(f"Done — {ok} converted")
+                self.window.toast.show_message(f"All {ok} file(s) converted", kind="success")
+            QTimer.singleShot(2500, self.progress.hide)
         self.refresh_chrome()
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(APP_NAME)
+        self.resize(620, 700)
+        self.setMinimumSize(480, 460)
+        self.setAcceptDrops(True)
+
+        central = QWidget()
+        central.setObjectName("centralWidget")
+        self.setCentralWidget(central)
+        wrapper = QVBoxLayout(central)
+        wrapper.setContentsMargins(0, 0, 0, 0)
+
+        self.pages = QStackedWidget()
+        wrapper.addWidget(self.pages)
+
+        report = backend.environment_report()
+        self.main_page = MainPage(self)
+        self.setup_page = SetupPage(report)
+        self.setup_page.setup_complete.connect(self.on_setup_complete)
+        self.pages.addWidget(self.main_page)
+        self.pages.addWidget(self.setup_page)
+
+        self.toast = Toast(central)
+
+        if report["markitdown"]:
+            self.main_page.set_markitdown(report["markitdown"])
+            self.pages.setCurrentWidget(self.main_page)
+        else:
+            self.pages.setCurrentWidget(self.setup_page)
+
+    def on_setup_complete(self, exe: str):
+        self.main_page.set_markitdown(exe)
+        self.pages.setCurrentWidget(self.main_page)
+        self.toast.show_message("MarkItDown is ready", kind="success")
+
+    def closeEvent(self, event):
+        self.main_page.shutdown()
+        super().closeEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.toast.isVisible():
+            self.toast.reposition()
+
+    # ---- drag & drop in (forwarded to the main page) ----
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and self.pages.currentWidget() is self.main_page:
+            self._set_drag_over(True)
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._set_drag_over(False)
+
+    def dropEvent(self, event):
+        self._set_drag_over(False)
+        added = self.main_page.add_files(collect_paths(event.mimeData().urls()))
+        if not added:
+            self.toast.show_message("Nothing convertible in that drop", kind="error")
+        event.acceptProposedAction()
+
+    def _set_drag_over(self, over: bool):
+        hint = self.main_page.drop_hint
+        hint.setProperty("dragOver", over)
+        self.main_page.hint_icon.setPixmap(
+            icon_pixmap("arrow-down-to-line", "#b9b0fa" if over else COLOR_MUTED, 44)
+        )
+        hint.style().unpolish(hint)
+        hint.style().polish(hint)
 
 
 def main():

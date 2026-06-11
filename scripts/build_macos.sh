@@ -9,7 +9,6 @@ iconutil -c icns assets/tomd.iconset -o assets/tomd.icns
 
 uv run pyinstaller --noconfirm --windowed --name tomd \
   --icon assets/tomd.icns \
-  --collect-data markitdown \
   --osx-bundle-identifier dev.thekiwidev.tomd \
   app.py
 

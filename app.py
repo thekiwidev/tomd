@@ -73,6 +73,8 @@ QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
 #fileRow {{ background: #1e1f26; border-radius: 10px; }}
 #fileRow[state="done"] {{ background: #1c2420; }}
 #fileRow[state="error"] {{ background: #261d1e; }}
+#fileRow[selected="true"] {{ background: #252040; border: 1px solid {COLOR_ACCENT}; }}
+#fileRow[selected="true"][state="done"] {{ background: #1e2e28; border: 1px solid {COLOR_ACCENT}; }}
 #fileName {{ color: {COLOR_TEXT}; font-size: 13px; font-weight: 600; }}
 #fileSub {{ color: #7f828d; font-size: 11px; }}
 #fileSub[state="error"] {{ color: {COLOR_RED}; }}
@@ -293,20 +295,23 @@ class Toast(QLabel):
             self.move((parent.width() - self.width()) // 2, parent.height() - self.height() - 66)
 
 
-class DragChip(QLabel):
+class DragChip(QWidget):
     """Small handle that lets the user drag the converted .md out of the app."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("dragChip")
-        # Compose grip icon + text manually since QLabel can't do both.
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 10, 4)
         layout.setSpacing(5)
         grip = QLabel()
         grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12))
+        grip.setFixedSize(14, 14)
+        grip.setAlignment(Qt.AlignCenter)
+        grip.setAttribute(Qt.WA_TransparentForMouseEvents)
         text = QLabel("drag .md")
         text.setStyleSheet("color: #9fe0b8; font-size: 11px; font-weight: 600; background: transparent;")
+        text.setAttribute(Qt.WA_TransparentForMouseEvents)
         layout.addWidget(grip)
         layout.addWidget(text)
         self.md_path = None
@@ -329,6 +334,8 @@ class DragChip(QLabel):
 
 
 class FileRow(QFrame):
+    selection_changed = Signal(object)  # emits self
+
     STATUS = {
         PENDING: ("circle", COLOR_MUTED),
         QUEUED: ("clock", COLOR_MUTED),
@@ -343,6 +350,7 @@ class FileRow(QFrame):
         self.source = source
         self.md_path = None
         self.state = PENDING
+        self.selected = False
         self._spin_angle = 0
         self._spin_timer = QTimer(self, interval=80, timeout=self._spin)
         self._loader_pixmap = icon_pixmap("loader", COLOR_AMBER, 13)
@@ -386,6 +394,20 @@ class FileRow(QFrame):
         for widget in (self.copy_button, self.drag_chip, self.reveal_button):
             layout.addWidget(widget)
             widget.hide()
+
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.set_selected(not self.selected)
+        super().mousePressEvent(event)
+
+    def set_selected(self, value: bool):
+        self.selected = value
+        self.setProperty("selected", "true" if value else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.selection_changed.emit(self)
 
     def _spin(self):
         self._spin_angle = (self._spin_angle + 30) % 360
@@ -630,6 +652,17 @@ class MainPage(QWidget):
         self.clear_button = QPushButton("Clear")
         self.clear_button.setIcon(themed_icon("trash", "#d6d8e0", 13))
         self.clear_button.clicked.connect(self.clear_rows)
+        self.remove_selected_button = QPushButton("Remove Selected")
+        self.remove_selected_button.setIcon(themed_icon("trash", "#e07a7f", 12))
+        self.remove_selected_button.setProperty("class", "rowAction")
+        self.remove_selected_button.setStyleSheet("QPushButton { background: #3a2020; color: #e07a7f; } QPushButton:hover { background: #4a2828; }")
+        self.remove_selected_button.clicked.connect(self.remove_selected)
+        self.remove_selected_button.hide()
+        self.reveal_selected_button = QPushButton("Reveal Selected")
+        self.reveal_selected_button.setIcon(themed_icon("folder", "#9fe0b8", 12))
+        self.reveal_selected_button.setProperty("class", "rowAction")
+        self.reveal_selected_button.clicked.connect(self.reveal_selected)
+        self.reveal_selected_button.hide()
         self.count_label = QLabel("")
         self.count_label.setObjectName("countLabel")
         self.run_button = QPushButton("Run")
@@ -639,6 +672,8 @@ class MainPage(QWidget):
         self.run_button.clicked.connect(self.on_run_clicked)
         bottom.addWidget(self.browse_button)
         bottom.addWidget(self.clear_button)
+        bottom.addWidget(self.remove_selected_button)
+        bottom.addWidget(self.reveal_selected_button)
         bottom.addStretch()
         bottom.addWidget(self.count_label)
         bottom.addWidget(self.run_button)
@@ -679,6 +714,7 @@ class MainPage(QWidget):
                 continue
             existing.add(path)
             row = FileRow(path)
+            row.selection_changed.connect(self.on_row_selection_changed)
             self.rows.append(row)
             new_rows.append(row)
             self.list_layout.insertWidget(self.list_layout.count() - 1, row)
@@ -698,12 +734,29 @@ class MainPage(QWidget):
         self.progress.hide()
         self.refresh_chrome()
 
+    def remove_selected(self):
+        selected = [r for r in self.rows if r.selected and r.state != RUNNING]
+        for row in selected:
+            self.rows.remove(row)
+            row.setParent(None)
+            row.deleteLater()
+        self.refresh_chrome()
+
+    def reveal_selected(self):
+        for row in self.rows:
+            if row.selected and row.md_path:
+                reveal_in_file_manager(row.md_path)
+
+    def on_row_selection_changed(self, _row):
+        self.refresh_chrome()
+
     def in_flight(self) -> int:
         return self.batch_total - self.batch_done
 
     def refresh_chrome(self):
         pending = sum(1 for row in self.rows if row.state in (PENDING, ERROR))
         busy = self.in_flight() > 0
+        selected = [r for r in self.rows if r.selected]
         self.stack.setCurrentWidget(self.scroll if self.rows else self.drop_hint)
         if not busy:
             self.count_label.setText(f"{len(self.rows)} file(s)" if self.rows else "")
@@ -718,6 +771,10 @@ class MainPage(QWidget):
             self.run_button.setToolTip("")
             self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
         self.clear_button.setEnabled(bool(self.rows) and not busy)
+        removable = [r for r in selected if r.state != RUNNING]
+        revealable = [r for r in selected if r.md_path]
+        self.remove_selected_button.setVisible(bool(removable))
+        self.reveal_selected_button.setVisible(bool(revealable))
 
     # ---- conversion queue ----
     def on_run_clicked(self):
@@ -830,6 +887,9 @@ class MainWindow(QMainWindow):
 
     # ---- drag & drop in (forwarded to the main page) ----
     def dragEnterEvent(self, event):
+        if event.source() is not None:
+            event.ignore()
+            return
         if event.mimeData().hasUrls() and self.pages.currentWidget() is self.main_page:
             self._set_drag_over(True)
             event.acceptProposedAction()

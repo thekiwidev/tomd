@@ -1,0 +1,40 @@
+name: Bug report
+description: Something broke or behaved unexpectedly
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: tomd version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux (from source)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment footer
+      description: The "using …" line at the bottom of the app window, if visible.
+      placeholder: using ~/Library/Application Support/tomd/venv/bin/markitdown
+  - type: textarea
+    id: file
+    attributes:
+      label: File type involved
+      description: What kind of file were you converting (pdf, docx, …)? Attach a sample if you can share one.

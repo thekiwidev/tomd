@@ -1,6 +1,11 @@
 # tomd
 
-**Drag & drop anything. Get Markdown.**
+[![Release](https://img.shields.io/github/v/release/thekiwidev/tomd?color=6c5ce7)](https://github.com/thekiwidev/tomd/releases/latest)
+[![Build](https://github.com/thekiwidev/tomd/actions/workflows/release.yml/badge.svg)](https://github.com/thekiwidev/tomd/actions/workflows/release.yml)
+[![Downloads](https://img.shields.io/github/downloads/thekiwidev/tomd/total?color=6c5ce7)](https://github.com/thekiwidev/tomd/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+**Drag & drop anything. Get Markdown.** · [Website](https://thekiwidev.github.io/tomd/) · [Download](https://github.com/thekiwidev/tomd/releases/latest)
 
 A thin desktop GUI for [Microsoft MarkItDown](https://github.com/microsoft/markitdown). Drop files or whole folders onto the window and a `.md` file appears next to every source file.
 

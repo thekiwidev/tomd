@@ -13,6 +13,20 @@ tomd does **no conversion itself** — it runs the `markitdown` CLI on *your* de
 
 ---
 
+## Why tomd?
+
+MarkItDown is a fantastic CLI tool, but it's a terminal command — not everyone wants to live in a terminal, and batch-converting a folder of PDFs shouldn't require a shell script. tomd gives it a proper desktop UI while staying completely out of the way: no bundled runtime, no cloud, just your own `markitdown` doing the work.
+
+| Feature | MarkItDown CLI | tomd |
+|---|---|---|
+| Drag & drop | ❌ | ✅ |
+| Conversion queue UI | ❌ | ✅ |
+| Progress tracking | ❌ | ✅ |
+| One-click install | ❌ | ✅ |
+| Folder conversion | ⚠️ Terminal required | ✅ |
+
+---
+
 ## How it works
 
 1. On launch, tomd checks your device for the `markitdown` CLI (your `PATH` first, then tomd's own managed environment).

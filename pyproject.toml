@@ -1,0 +1,15 @@
+[project]
+name = "tomd"
+version = "0.1.0"
+description = "Drag & drop GUI for Microsoft MarkItDown — convert anything to Markdown"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "markitdown[all]>=0.1.5",
+    "pyside6>=6.11.1",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.20.0",
+]

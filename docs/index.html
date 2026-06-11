@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tomd — Drag &amp; drop anything. Get Markdown.</title>
+<meta name="description" content="tomd is a free, open-source desktop GUI for Microsoft's MarkItDown. Drag &amp; drop PDFs, Word, Excel, PowerPoint, images and more — get clean, token-efficient Markdown for your LLM workflows.">
+<meta property="og:title" content="tomd — Drag & drop anything. Get Markdown.">
+<meta property="og:description" content="Free, open-source desktop GUI for Microsoft's MarkItDown. Convert documents to clean, token-efficient Markdown for LLM workflows.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 525 525"><path d="M0 100C0 44.8 44.8 0 100 0H425C480.2 0 525 44.8 525 100V425C525 480.2 480.2 525 425 525H100C44.8 525 0 480.2 0 425V100Z" fill="white"/><path d="M117.9 371L129 311H103.5V291.5H132.6L143.4 231.5H114V212H147L158.1 152H179.1L168 212H216L227.1 152H248.1L237 212H262.5V231.5H233.4L222.6 291.5H252V311H219L207.9 371H186.9L198 311H150L138.9 371H117.9ZM153.6 291.5H201.6L212.4 231.5H164.4L153.6 291.5Z" fill="black"/><path d="M369.7 355.8L362.1 363.4L369.7 371L377.3 363.4L369.7 355.8ZM283.7 173C280.9 173 278.2 174.1 276.1 176.1C274.1 178.2 273 180.9 273 183.8C273 186.6 274.1 189.3 276.1 191.4C278.2 193.4 280.9 194.5 283.7 194.5V173ZM308.4 309.6L362.1 363.4L377.3 348.2L323.6 294.4L308.4 309.6ZM377.3 363.4L431 309.6L415.8 294.4L362.1 348.2L377.3 363.4ZM380.4 355.8V248.3H358.9V355.8H380.4ZM305.2 173H283.7V194.5H305.2V173ZM380.4 248.3C380.4 228.3 372.5 209.2 358.4 195C344.3 180.9 325.2 173 305.2 173V194.5C319.5 194.5 333.1 200.2 343.2 210.3C353.3 220.3 358.9 234 358.9 248.3H380.4Z" fill="black"/></svg>'>
+<style>
+:root{
+  --bg:#0f1013;
+  --bg-raised:#15161a;
+  --bg-card:#1a1b20;
+  --bg-row:#1e1f26;
+  --border:#26272e;
+  --border-soft:#34363f;
+  --text:#f2f3f7;
+  --text-body:#b6b9c2;
+  --text-muted:#8b8e98;
+  --accent:#7c6cf0;
+  --accent-deep:#6c5ce7;
+  --accent-soft:#b9b0fa;
+  --green:#7ddc9a;
+  --green-chip-bg:#2a3d33;
+  --green-chip:#9fe0b8;
+  --amber:#e6c468;
+  --red:#e07a7f;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--text-body);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,sans-serif;
+  font-size:16px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent-deep);color:#fff}
+a{color:var(--accent-soft);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+section{padding:96px 0}
+h1,h2,h3{color:var(--text);line-height:1.15;letter-spacing:-.02em}
+h2{font-size:clamp(28px,4vw,40px);margin-bottom:14px}
+.kicker{
+  display:inline-block;font-size:12px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--accent-soft);margin-bottom:14px;
+}
+.lead{font-size:18px;color:var(--text-muted);max-width:640px}
+.icon{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.125em}
+
+/* ---------- nav ---------- */
+nav{
+  position:sticky;top:0;z-index:50;
+  background:rgba(15,16,19,.82);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+}
+.nav-inner{display:flex;align-items:center;gap:28px;height:62px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:18px;color:var(--text)}
+.brand svg{width:20px;height:20px;color:var(--accent)}
+.nav-links{display:flex;gap:24px;font-size:14px;font-weight:600;margin-left:auto}
+.nav-links a{color:var(--text-muted)}
+.nav-links a:hover{color:var(--text);text-decoration:none}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  border-radius:10px;padding:10px 20px;font-size:14px;font-weight:700;
+  transition:transform .15s ease,background .15s ease;cursor:pointer;border:none;
+}
+.btn:hover{text-decoration:none;transform:translateY(-1px)}
+.btn-primary{background:var(--accent-deep);color:#fff}
+.btn-primary:hover{background:var(--accent)}
+.btn-ghost{background:var(--bg-row);color:var(--text)}
+.btn-ghost:hover{background:#2a2c35}
+.btn-sm{padding:8px 16px;font-size:13px}
+@media(max-width:760px){.nav-links{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:110px 0 80px;text-align:center;position:relative;overflow:hidden}
+.hero::before{
+  content:"";position:absolute;inset:-40% -20% auto;height:80%;
+  background:radial-gradient(ellipse at 50% 0%,rgba(124,108,240,.16),transparent 65%);
+  pointer-events:none;
+}
+.hero .wrap{position:relative}
+.hero h1{font-size:clamp(40px,7vw,68px);font-weight:800;margin-bottom:20px}
+.hero h1 .grad{
+  background:linear-gradient(120deg,var(--accent-soft),var(--accent-deep));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero p{font-size:clamp(17px,2.2vw,20px);color:var(--text-muted);max-width:660px;margin:0 auto 34px}
+.hero-ctas{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+.hero-meta{font-size:13px;color:var(--text-muted)}
+.hero-meta .icon{color:var(--green)}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--bg-card);border:1px solid var(--border-soft);
+  border-radius:999px;padding:7px 16px;font-size:13px;font-weight:600;
+  color:var(--text-body);margin-bottom:28px;
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+/* ---------- app mockup ---------- */
+.window{
+  max-width:760px;margin:64px auto 0;text-align:left;
+  background:var(--bg-raised);border:1px solid var(--border);
+  border-radius:16px;overflow:hidden;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.7),0 0 0 1px rgba(124,108,240,.08),0 -1px 60px -10px rgba(124,108,240,.12);
+}
+.titlebar{
+  display:flex;align-items:center;height:38px;padding:0 14px;
+  background:#1b1c21;border-bottom:1px solid var(--border);
+}
+.lights{display:flex;gap:8px}
+.lights span{width:12px;height:12px;border-radius:50%}
+.lights span:nth-child(1){background:#ff5f57}
+.lights span:nth-child(2){background:#febc2e}
+.lights span:nth-child(3){background:#28c840}
+.titlebar .t{flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--text-muted);margin-right:44px}
+.window-body{padding:22px 22px 16px}
+.win-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.win-title{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:800;color:var(--text)}
+.win-title svg{width:18px;height:18px;color:var(--accent)}
+.win-sub{font-size:12.5px;color:var(--text-muted);margin-top:3px}
+.win-check{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-body);font-weight:600}
+.win-check .box{
+  width:15px;height:15px;border-radius:4px;background:var(--accent-deep);
+  display:grid;place-items:center;
+}
+.win-check .box svg{width:10px;height:10px;color:#fff;stroke-width:4}
+.row{
+  display:flex;align-items:center;gap:11px;
+  background:var(--bg-row);border-radius:10px;padding:10px 13px;margin-bottom:7px;
+}
+.row.done{background:#1c2420}
+.row.running{background:var(--bg-row)}
+.row .st{width:16px;height:16px;flex:none}
+.row.done .st{color:var(--green)}
+.row.pending .st{color:var(--text-muted)}
+.row.running .st{color:var(--amber);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.row .fmeta{flex:1;min-width:0}
+.row .fname{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .fsub{font-size:11px;color:var(--text-muted)}
+.row.done .fsub{color:#86b797}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;flex:none;
+  background:var(--green-chip-bg);color:var(--green-chip);
+  border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;
+}
+.chip svg{width:12px;height:12px}
+.win-foot{display:flex;align-items:center;gap:10px;margin-top:16px}
+.wbtn{
+  display:inline-flex;align-items:center;gap:7px;
+  background:#2a2c35;color:#d6d8e0;border-radius:8px;
+  padding:8px 15px;font-size:12.5px;font-weight:700;
+}
+.wbtn svg{width:13px;height:13px}
+.wbtn.run{background:var(--accent-deep);color:#fff;padding:9px 21px;font-size:13px}
+.win-count{margin-left:auto;font-size:12px;color:var(--text-muted)}
+.win-env{font-size:10.5px;color:#565963;margin-top:12px}
+@media(max-width:640px){
+  .row .chip{display:none}
+  .win-check{display:none}
+}
+
+/* ---------- sections ---------- */
+.section-head{max-width:640px;margin-bottom:54px}
+.grid{display:grid;gap:18px}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:880px){.grid-3{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.grid-3,.grid-2{grid-template-columns:1fr}}
+.card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:26px;
+  transition:border-color .2s ease,transform .2s ease;
+}
+.card:hover{border-color:var(--border-soft);transform:translateY(-2px)}
+.card .ic{
+  width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+  background:rgba(124,108,240,.12);color:var(--accent-soft);margin-bottom:16px;
+}
+.card .ic svg{width:19px;height:19px}
+.card h3{font-size:16.5px;margin-bottom:8px}
+.card p{font-size:14px;color:var(--text-muted)}
+
+/* why section */
+.why{background:var(--bg-raised);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.why-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+@media(max-width:840px){.why-grid{grid-template-columns:1fr}}
+.token-compare{display:flex;flex-direction:column;gap:12px}
+.token-bar{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.token-bar .lab{display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px}
+.token-bar .lab span:last-child{color:var(--text-muted);font-weight:600}
+.meter{height:10px;border-radius:5px;background:#22232a;overflow:hidden}
+.meter i{display:block;height:100%;border-radius:5px}
+.meter .raw{width:100%;background:linear-gradient(90deg,#e07a7f,#c45a60)}
+.meter .md{width:24%;background:linear-gradient(90deg,var(--accent-soft),var(--accent-deep))}
+.token-note{font-size:12.5px;color:var(--text-muted)}
+
+/* steps */
+.step{position:relative;padding-left:0}
+.step .num{
+  display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;
+  background:var(--accent-deep);color:#fff;font-weight:800;font-size:15px;margin-bottom:16px;
+}
+.step code{
+  background:#101114;border:1px solid var(--border);border-radius:8px;
+  padding:2px 8px;font-size:12.5px;color:var(--green-chip);
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+}
+
+/* formats */
+.fmt-grid{display:flex;flex-wrap:wrap;gap:10px}
+.fmt{
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:600;color:var(--text-body);
+}
+.fmt svg{width:14px;height:14px;color:var(--accent-soft)}
+.fmt.soon{border-style:dashed;color:var(--text-muted)}
+.fmt.soon .tag{font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--amber);text-transform:uppercase}
+
+/* architecture */
+.arch{background:var(--bg-raised);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.arch-flow{
+  display:flex;align-items:stretch;gap:0;margin-top:46px;flex-wrap:wrap;
+}
+.arch-node{
+  flex:1;min-width:200px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:22px;text-align:center;
+}
+.arch-node .ic{width:38px;height:38px;border-radius:10px;background:rgba(124,108,240,.12);color:var(--accent-soft);display:grid;place-items:center;margin:0 auto 12px}
+.arch-node .ic svg{width:18px;height:18px}
+.arch-node h3{font-size:15px;margin-bottom:6px}
+.arch-node p{font-size:12.5px;color:var(--text-muted)}
+.arch-arrow{display:grid;place-items:center;padding:0 12px;color:var(--border-soft);font-size:22px}
+@media(max-width:760px){
+  .arch-flow{flex-direction:column}
+  .arch-arrow{transform:rotate(90deg);padding:6px 0}
+}
+.req-list{margin-top:40px;display:grid;gap:12px;grid-template-columns:repeat(3,1fr)}
+@media(max-width:760px){.req-list{grid-template-columns:1fr}}
+.req{
+  display:flex;gap:12px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:12px;padding:16px 18px;font-size:13.5px;
+}
+.req svg{width:17px;height:17px;color:var(--green);flex:none;margin-top:2px}
+.req strong{color:var(--text);display:block;font-size:13.5px}
+.req span{color:var(--text-muted);font-size:12.5px}
+
+/* roadmap */
+.road{display:grid;gap:14px;max-width:720px}
+.road-item{
+  display:flex;gap:16px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px 22px;
+}
+.road-item .status{
+  flex:none;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:999px;padding:4px 12px;height:fit-content;margin-top:2px;
+}
+.status.now{background:rgba(125,220,154,.12);color:var(--green)}
+.status.progress{background:rgba(230,196,104,.12);color:var(--amber)}
+.status.planned{background:rgba(124,108,240,.14);color:var(--accent-soft)}
+.road-item h3{font-size:15.5px;margin-bottom:5px}
+.road-item p{font-size:13.5px;color:var(--text-muted)}
+
+/* open source */
+.oss{
+  text-align:center;background:
+  radial-gradient(ellipse at 50% 100%,rgba(124,108,240,.14),transparent 60%);
+}
+.oss .btn{margin-top:8px}
+.oss-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:26px 0 34px}
+.oss-badges .fmt{font-size:12.5px}
+
+/* faq */
+details{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:12px;padding:0;margin-bottom:10px;overflow:hidden;
+}
+summary{
+  cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;
+  padding:18px 22px;font-weight:700;color:var(--text);font-size:15px;
+}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--text-muted);font-size:20px;font-weight:400}
+details[open] summary::after{content:"–"}
+details .a{padding:0 22px 18px;font-size:14px;color:var(--text-muted)}
+details .a code{background:#101114;border:1px solid var(--border);border-radius:6px;padding:1px 7px;font-size:12.5px;color:var(--green-chip);font-family:ui-monospace,Menlo,monospace}
+
+/* footer */
+footer{border-top:1px solid var(--border);padding:48px 0;font-size:13.5px;color:var(--text-muted)}
+.foot-grid{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}
+.foot-links{display:flex;gap:22px;flex-wrap:wrap}
+.foot-links a{color:var(--text-muted);font-weight:600}
+.foot-links a:hover{color:var(--text)}
+.foot-note{margin-top:22px;font-size:12px;color:#565963;max-width:640px}
+
+/* reveal animation */
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<!-- ======================= NAV ======================= -->
+<nav>
+  <div class="wrap nav-inner">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 24 24" class="icon"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
+      tomd
+    </a>
+    <div class="nav-links">
+      <a href="#why">Why</a>
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#formats">Formats</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/thekiwidev/tomd" target="_blank" rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- ======================= HERO ======================= -->
+<header class="hero">
+  <div class="wrap">
+    <span class="pill"><span class="dot"></span> Free &amp; open source · macOS &amp; Windows</span>
+    <h1>Drag &amp; drop anything.<br><span class="grad">Get Markdown.</span></h1>
+    <p>tomd is a tiny desktop app that turns PDFs, Word docs, spreadsheets, slides, images and more into clean Markdown — the most token-efficient format you can feed an LLM.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/thekiwidev/tomd/releases/latest" target="_blank" rel="noopener">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/thekiwidev/tomd" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+    <div class="hero-meta">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+      100% local · your files never leave your device · MIT licensed
+    </div>
+
+    <!-- App window mockup -->
+    <div class="window" aria-label="Screenshot of the tomd app">
+      <div class="titlebar">
+        <div class="lights"><span></span><span></span><span></span></div>
+        <div class="t">tomd</div>
+      </div>
+      <div class="window-body">
+        <div class="win-head">
+          <div>
+            <div class="win-title">
+              <svg viewBox="0 0 24 24" class="icon"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
+              tomd
+            </div>
+            <div class="win-sub">Drop files or folders anywhere in this window.</div>
+          </div>
+          <div class="win-check">
+            <span class="box"><svg viewBox="0 0 24 24" class="icon"><path d="M20 6 9 17l-5-5"/></svg></span>
+            Auto-convert on drop
+          </div>
+        </div>
+
+        <div class="row done">
+          <svg class="st icon" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+          <div class="fmeta">
+            <div class="fname">quarterly-report.docx</div>
+            <div class="fsub">→ quarterly-report.md</div>
+          </div>
+          <span class="chip"><svg viewBox="0 0 24 24" class="icon"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copy MD</span>
+          <span class="chip"><svg viewBox="0 0 24 24" class="icon"><circle cx="12" cy="5" r="1"/><circle cx="19" cy="5" r="1"/><circle cx="5" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="12" cy="19" r="1"/><circle cx="19" cy="19" r="1"/><circle cx="5" cy="19" r="1"/></svg>drag .md</span>
+          <span class="chip"><svg viewBox="0 0 24 24" class="icon"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><circle cx="12" cy="13" r="1"/></svg>Reveal</span>
+        </div>
+
+        <div class="row running">
+          <svg class="st icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <div class="fmeta">
+            <div class="fname">product-deck.pptx</div>
+            <div class="fsub">Converting…</div>
+          </div>
+        </div>
+
+        <div class="row pending">
+          <svg class="st icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <div class="fmeta">
+            <div class="fname">research-notes.pdf</div>
+            <div class="fsub">Queued…</div>
+          </div>
+        </div>
+
+        <div class="win-foot">
+          <span class="wbtn"><svg viewBox="0 0 24 24" class="icon"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add Files…</span>
+          <span class="wbtn"><svg viewBox="0 0 24 24" class="icon"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear</span>
+          <span class="win-count">Converting 2/3 — product-deck.pptx</span>
+          <span class="wbtn run"><svg viewBox="0 0 24 24" class="icon"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>Stop</span>
+        </div>
+        <div class="win-env">using ~/Library/Application Support/tomd/venv/bin/markitdown</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ======================= WHY ======================= -->
+<section class="why" id="why">
+  <div class="wrap why-grid">
+    <div class="reveal">
+      <span class="kicker">Why tomd</span>
+      <h2>Stop burning your LLM's context window.</h2>
+      <p class="lead" style="margin-bottom:18px">Attach a Word doc, PDF or slide deck to Claude or ChatGPT and a huge slice of the context window disappears into formatting overhead before the model reads a single idea.</p>
+      <p style="font-size:15px">Markdown is the format LLMs natively "speak" — minimal markup, structure preserved, dramatically fewer tokens. tomd converts your documents <em>before</em> they hit the chat box, so the model spends its context on your content, not your file format.</p>
+    </div>
+    <div class="token-compare reveal">
+      <div class="token-bar">
+        <div class="lab"><span>report.docx attached raw</span><span>heavy</span></div>
+        <div class="meter"><i class="raw"></i></div>
+      </div>
+      <div class="token-bar">
+        <div class="lab"><span>report.md via tomd</span><span>light</span></div>
+        <div class="meter"><i class="md"></i></div>
+      </div>
+      <p class="token-note">Same content, structure intact — headings, lists, tables and links preserved as clean Markdown. Conversion quality by <a href="https://github.com/microsoft/markitdown" target="_blank" rel="noopener">Microsoft MarkItDown</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= HOW ======================= -->
+<section id="how">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="kicker">How it works</span>
+      <h2>A GUI for your terminal, not a black box.</h2>
+      <p class="lead">tomd doesn't reimplement anything. It's a thin desktop front-end that runs Microsoft's open-source <strong>MarkItDown</strong> CLI on your machine — the exact commands you'd type yourself, minus the typing.</p>
+    </div>
+    <div class="grid grid-3">
+      <div class="card step reveal">
+        <span class="num">1</span>
+        <h3>Install &amp; open</h3>
+        <p>Download the app and open it. On first launch, tomd checks your device for the requirements — Python 3.10+ (or <code>uv</code>) and the <code>markitdown</code> CLI.</p>
+      </div>
+      <div class="card step reveal">
+        <span class="num">2</span>
+        <h3>One-click setup</h3>
+        <p>Already have <code>markitdown</code> installed? tomd uses yours and never asks. Missing it? One click installs <code>markitdown[all]</code> into a private environment — your global Python is never touched. You watch every command run live.</p>
+      </div>
+      <div class="card step reveal">
+        <span class="num">3</span>
+        <h3>Drop. Convert. Done.</h3>
+        <p>Drag files or whole folders in. Each file runs through <code>markitdown file -o file.md</code> in a sequential queue, and the <code>.md</code> lands right next to the original.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FEATURES ======================= -->
+<section id="features" style="padding-top:20px">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="kicker">Features</span>
+      <h2>Small app. Sharp edges filed off.</h2>
+    </div>
+    <div class="grid grid-3">
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></div>
+        <h3>Drag &amp; drop anything</h3>
+        <p>Drop single files or entire folders — tomd recursively picks up every supported file inside and lines them up.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg></div>
+        <h3>Auto-convert &amp; queue</h3>
+        <p>Flip one switch and dropped files convert instantly — one at a time through a sequential queue, with a Stop button when you change your mind.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div>
+        <h3>Live progress</h3>
+        <p>Per-file status, a spinner on the active conversion, an overall progress bar, and toast notifications when something finishes — or fails.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></div>
+        <h3>Copy, drag, or reveal</h3>
+        <p>Copy the Markdown straight to your clipboard, drag the <code style="background:#101114;border:1px solid #26272e;border-radius:6px;padding:1px 6px;font-size:12px">.md</code> file out into any app, or reveal it in Finder / Explorer.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div>
+        <h3>100% on your device</h3>
+        <p>No uploads, no accounts, no telemetry. Conversion runs as a local process on your machine. Your documents never leave it.</p>
+      </div>
+      <div class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></div>
+        <h3>Built for developers</h3>
+        <p>Transparent by design: the footer shows exactly which <code style="background:#101114;border:1px solid #26272e;border-radius:6px;padding:1px 6px;font-size:12px">markitdown</code> binary is in use, and setup streams every shell command it runs.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FORMATS ======================= -->
+<section id="formats">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="kicker">Supported formats</span>
+      <h2>If MarkItDown reads it, tomd converts it.</h2>
+      <p class="lead">Everything Microsoft's MarkItDown handles, through one drop zone.</p>
+    </div>
+    <div class="fmt-grid reveal">
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>PDF</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>Word (.docx)</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M2 3h20v14H2z"/><path d="m7 21 5-4 5 4"/></svg>PowerPoint (.pptx)</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>Excel (.xlsx / .xls)</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>Images (EXIF + OCR)</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Audio (metadata + transcription)</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>HTML</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>CSV · JSON · XML</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>ZIP archives</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>EPub</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Outlook (.msg / .eml)</span>
+      <span class="fmt soon"><svg viewBox="0 0 24 24" class="icon"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></svg>YouTube URLs <span class="tag">in progress</span></span>
+      <span class="fmt soon"><svg viewBox="0 0 24 24" class="icon"><path d="M5 4h1a3 3 0 0 1 3 3 3 3 0 0 1 3-3h1"/><path d="M13 20h-1a3 3 0 0 1-3-3 3 3 0 0 1-3 3H5"/><path d="M5 16H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h1"/><path d="M13 8h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-7"/><path d="M9 7v10"/></svg>Paste-to-convert <span class="tag">planned</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= ARCHITECTURE / REQUIREMENTS ======================= -->
+<section class="arch" id="requirements">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="kicker">Under the hood</span>
+      <h2>Your device does the work. tomd just drives.</h2>
+      <p class="lead">tomd doesn't bundle a converter. It finds — or installs — Microsoft's MarkItDown on your machine and shells out to it, file by file. That keeps the app small, the conversion engine always upgradeable, and the whole pipeline inspectable.</p>
+    </div>
+
+    <div class="arch-flow reveal">
+      <div class="arch-node">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></div>
+        <h3>You drop files</h3>
+        <p>Files and folders queue up in the tomd window.</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></div>
+        <h3>tomd runs the CLI</h3>
+        <p><code style="background:#101114;border:1px solid #26272e;border-radius:6px;padding:1px 7px;font-size:11.5px;color:#9fe0b8;font-family:ui-monospace,Menlo,monospace">markitdown file.pdf -o file.md</code><br>One subprocess at a time, on your device.</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <div class="ic"><svg viewBox="0 0 24 24" class="icon"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></div>
+        <h3>.md appears</h3>
+        <p>Saved next to the original. Copy it, drag it out, or reveal it.</p>
+      </div>
+    </div>
+
+    <div class="req-list reveal">
+      <div class="req">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M20 6 9 17l-5-5"/></svg>
+        <div><strong>macOS or Windows</strong><span>Apple Silicon &amp; Intel Macs; Windows 10+. Linux: run from source.</span></div>
+      </div>
+      <div class="req">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M20 6 9 17l-5-5"/></svg>
+        <div><strong>Python 3.10+ or uv</strong><span>Either one works. With uv, tomd can even download a Python for you.</span></div>
+      </div>
+      <div class="req">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M20 6 9 17l-5-5"/></svg>
+        <div><strong>MarkItDown — auto-installed</strong><span>Found on your PATH? Used as-is. Missing? One-click install into a private venv.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= ROADMAP ======================= -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="kicker">Roadmap</span>
+      <h2>Where this is going.</h2>
+    </div>
+    <div class="road">
+      <div class="road-item reveal">
+        <span class="status now">Shipped</span>
+        <div>
+          <h3>Local file conversion</h3>
+          <p>Drag &amp; drop conversion for PDFs, Office documents, images, audio, HTML, archives and more — with auto-convert, a sequential queue, live progress and per-file actions.</p>
+        </div>
+      </div>
+      <div class="road-item reveal">
+        <span class="status progress">In progress</span>
+        <div>
+          <h3>YouTube URL conversion</h3>
+          <p>Paste a YouTube link, get the transcript as Markdown. Instead of handing an LLM a URL it can't read, hand it the actual content.</p>
+        </div>
+      </div>
+      <div class="road-item reveal">
+        <span class="status planned">Planned</span>
+        <div>
+          <h3>Paste-to-convert</h3>
+          <p>A text field that takes whatever you paste — raw HTML, rich text, markup — and turns it into Markdown on the spot.</p>
+        </div>
+      </div>
+      <div class="road-item reveal">
+        <span class="status planned">Planned</span>
+        <div>
+          <h3>Conversion options</h3>
+          <p>Pick an output folder, enable MarkItDown plugins, wire up LLM-powered image descriptions and OCR — the advanced knobs, kept out of the way until you want them.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= OPEN SOURCE ======================= -->
+<section class="oss">
+  <div class="wrap reveal">
+    <span class="kicker">Open source</span>
+    <h2>MIT licensed. Built in the open.</h2>
+    <p class="lead" style="margin:0 auto 6px">tomd stands on the shoulders of <a href="https://github.com/microsoft/markitdown" target="_blank" rel="noopener">MarkItDown</a>, an open-source project by Microsoft's AutoGen team. The GUI, the issues, the roadmap — all public.</p>
+    <div class="oss-badges">
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M12 2v20"/><path d="M2 12h20"/></svg>MIT License</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="M16 18a4 4 0 0 0-8 0"/><circle cx="12" cy="11" r="3"/><rect width="18" height="18" x="3" y="4" rx="2"/><circle cx="12" cy="10" r="2"/></svg>No accounts</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><path d="m8 6 4-4 4 4"/><path d="M12 2v10.3"/><path d="M4 13a8 8 0 0 0 16 0"/></svg>No telemetry</span>
+      <span class="fmt"><svg viewBox="0 0 24 24" class="icon"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Works offline</span>
+    </div>
+    <a class="btn btn-primary" href="https://github.com/thekiwidev/tomd" target="_blank" rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+      Star on GitHub
+    </a>
+  </div>
+</section>
+
+<!-- ======================= FAQ ======================= -->
+<section id="faq" style="padding-top:30px">
+  <div class="wrap" style="max-width:760px">
+    <div class="section-head reveal">
+      <span class="kicker">FAQ</span>
+      <h2>Questions, answered.</h2>
+    </div>
+    <div class="reveal">
+      <details>
+        <summary>Do my files get uploaded anywhere?</summary>
+        <div class="a">No. Conversion is a local subprocess on your machine — the same as running <code>markitdown</code> in a terminal. tomd has no server, no accounts, and sends nothing anywhere.</div>
+      </details>
+      <details>
+        <summary>Why does macOS warn me the first time I open it?</summary>
+        <div class="a">The app isn't code-signed with an Apple Developer ID yet (that's a paid certificate). Right-click the app → <strong>Open</strong> → <strong>Open</strong> once; after that it launches normally. You can also audit the source and build it yourself.</div>
+      </details>
+      <details>
+        <summary>What exactly does the one-time setup install?</summary>
+        <div class="a">If <code>markitdown</code> isn't already on your PATH, tomd creates a private virtual environment in your user library (e.g. <code>~/Library/Application Support/tomd/venv</code> on macOS) and installs <code>markitdown[all]</code> into it. Your system Python and global packages are never modified. Every command is streamed to the screen as it runs, and you can delete that one folder to undo it completely.</div>
+      </details>
+      <details>
+        <summary>I already use markitdown in my terminal. Will tomd respect that?</summary>
+        <div class="a">Yes — your PATH is checked first. If a <code>markitdown</code> binary is found, tomd uses it and never installs anything. The footer of the app always shows which binary is in use.</div>
+      </details>
+      <details>
+        <summary>Where do the converted files go?</summary>
+        <div class="a">Right next to the original: <code>report.pdf</code> becomes <code>report.md</code> in the same folder. From the app you can copy the Markdown, drag the file anywhere, or reveal it in Finder / Explorer.</div>
+      </details>
+      <details>
+        <summary>How good is the conversion?</summary>
+        <div class="a">As good as Microsoft MarkItDown — which is very good for structure (headings, tables, lists, links) and optimized for LLM consumption rather than pixel-perfect human-facing fidelity. It's the same engine many AI pipelines use under the hood.</div>
+      </details>
+      <details>
+        <summary>Is it really free?</summary>
+        <div class="a">Yes. MIT licensed, free forever, source on GitHub. If it saves you tokens, a star is appreciated.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= FOOTER ======================= -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="brand" style="margin-bottom:8px">
+          <svg viewBox="0 0 24 24" class="icon" style="color:var(--accent)"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
+          tomd
+        </div>
+        Drag &amp; drop anything. Get Markdown.
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/thekiwidev/tomd" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/thekiwidev/tomd/releases/latest" target="_blank" rel="noopener">Download</a>
+        <a href="https://github.com/thekiwidev/tomd/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://adedotun.xyz" target="_blank" rel="noopener">Portfolio</a>
+        <a href="https://www.linkedin.com/in/thekiwidev" target="_blank" rel="noopener">LinkedIn</a>
+      </div>
+    </div>
+    <p class="foot-note">
+      Built by <a href="https://adedotun.xyz" target="_blank" rel="noopener">Adedotun Gabriel</a>. Conversion powered by
+      <a href="https://github.com/microsoft/markitdown" target="_blank" rel="noopener">MarkItDown</a>, an open-source project by Microsoft's AutoGen team.
+      tomd is an independent project and is not affiliated with or endorsed by Microsoft. MIT License.
+    </p>
+  </div>
+</footer>
+
+<script>
+const io = new IntersectionObserver((entries)=>{
+  for (const e of entries) if (e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); }
+},{threshold:.12});
+document.querySelectorAll(".reveal").forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

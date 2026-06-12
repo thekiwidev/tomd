@@ -57,9 +57,9 @@ COLOR_AMBER = "#e6c468"
 COLOR_RED = "#e07a7f"
 
 STYLE = f"""
-* {{ font-family: -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }}
+* {{ font-family: "Inter", -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }}
 QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
-#titleLabel {{ color: #f2f3f7; font-size: 22px; font-weight: 700; }}
+#titleLabel {{ font-family: "Space Grotesk", "Inter", -apple-system, sans-serif; color: #f2f3f7; font-size: 22px; font-weight: 700; }}
 #subtitleLabel {{ color: {COLOR_MUTED}; font-size: 13px; }}
 #dropHint {{
     border: 2px dashed #34363f; border-radius: 14px;
@@ -76,7 +76,7 @@ QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
 #fileRow[selected="true"] {{ background: #252040; border: 1px solid {COLOR_ACCENT}; }}
 #fileRow[selected="true"][state="done"] {{ background: #1e2e28; border: 1px solid {COLOR_ACCENT}; }}
 #fileName {{ color: {COLOR_TEXT}; font-size: 13px; font-weight: 600; }}
-#fileSub {{ color: #7f828d; font-size: 11px; }}
+#fileSub {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; color: #7f828d; font-size: 11px; }}
 #fileSub[state="error"] {{ color: {COLOR_RED}; }}
 QPushButton {{
     background: #2a2c35; color: #d6d8e0; border: none;
@@ -90,13 +90,14 @@ QPushButton#runButton, QPushButton#installButton {{
 }}
 QPushButton#runButton:hover, QPushButton#installButton:hover {{ background: {COLOR_ACCENT}; }}
 QPushButton#runButton:disabled, QPushButton#installButton:disabled {{ background: #3a3554; color: #837fa6; }}
-QPushButton.rowAction {{ padding: 3px 9px; font-size: 11px; background: #2a3d33; color: #9fe0b8; border-radius: 8px; }}
+QPushButton.rowAction {{ padding: 3px 9px; font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 11px; background: #2a3d33; color: #9fe0b8; border-radius: 8px; }}
 QPushButton.rowAction:hover {{ background: #345043; }}
 #dragChip {{
+    font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     color: #9fe0b8; background: #2a3d33; border-radius: 8px;
     padding: 3px 9px; font-size: 11px; font-weight: 600;
 }}
-#countLabel, #envLabel {{ color: {COLOR_MUTED}; font-size: 12px; }}
+#countLabel, #envLabel {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; color: {COLOR_MUTED}; font-size: 12px; }}
 #envLabel {{ font-size: 10px; }}
 QCheckBox {{ color: #b6b9c2; font-size: 12px; spacing: 6px; }}
 QCheckBox::indicator {{
@@ -120,7 +121,7 @@ QProgressBar::chunk {{ background: #6c5ce7; border-radius: 3px; }}
 #checkItem {{ color: #b6b9c2; font-size: 13px; }}
 #setupLog {{
     background: #101114; color: #9da1ab; border: 1px solid #26272e;
-    border-radius: 10px; font-family: Menlo, Consolas, monospace; font-size: 11px;
+    border-radius: 10px; font-family: "JetBrains Mono", Menlo, Consolas, monospace; font-size: 11px;
     padding: 6px;
 }}
 QScrollBar:vertical {{ background: transparent; width: 8px; }}
@@ -310,8 +311,8 @@ class DragChip(QWidget):
         layout.setContentsMargins(7, 3, 9, 3)
         layout.setSpacing(4)
         grip = QLabel()
-        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 10))
-        grip.setFixedSize(12, 12)
+        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12))
+        grip.setFixedSize(14, 14)
         grip.setAlignment(Qt.AlignCenter)
         grip.setAttribute(Qt.WA_TransparentForMouseEvents)
         text = QLabel("drag .md")
@@ -450,7 +451,7 @@ class FileRow(QFrame):
         layout.addLayout(text_col, stretch=1)
 
         self.copy_button = QPushButton("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 10))
+        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 9))
         self.copy_button.setProperty("class", "rowAction")
         self.copy_button.setToolTip("Copy the markdown content to the clipboard")
         self.copy_button.clicked.connect(self.copy_markdown)
@@ -458,7 +459,7 @@ class FileRow(QFrame):
         self.drag_chip = DragChip()
 
         self.reveal_button = QPushButton("Reveal")
-        self.reveal_button.setIcon(themed_icon("folder", "#9fe0b8", 10))
+        self.reveal_button.setIcon(themed_icon("folder", "#9fe0b8", 9))
         self.reveal_button.setProperty("class", "rowAction")
         self.reveal_button.setToolTip("Show the .md file in Finder")
         self.reveal_button.clicked.connect(self.reveal)
@@ -522,12 +523,12 @@ class FileRow(QFrame):
         if self.md_path and self.md_path.exists():
             QGuiApplication.clipboard().setText(self.md_path.read_text(encoding="utf-8"))
             self.copy_button.setText("Copied")
-            self.copy_button.setIcon(themed_icon("check", "#9fe0b8", 10))
+            self.copy_button.setIcon(themed_icon("check", "#9fe0b8", 9))
             QTimer.singleShot(1500, self._reset_copy_button)
 
     def _reset_copy_button(self):
         self.copy_button.setText("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 10))
+        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 9))
 
     def reveal(self):
         if self.md_path:

@@ -2,6 +2,17 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.3] — 2026-06-12
+
+### Changed
+- Icon sizes balanced: drag grip increased to 12 px, Copy MD / Reveal reduced to 9 px so all three row-action elements are visually consistent
+- Fonts aligned with the landing page: `Space Grotesk` for the app title, `JetBrains Mono` for mono / chip / sub-line elements, `Inter` for all body text
+
+### Removed
+- `.mov` source videos replaced by GIFs in assets (`.mov` files deleted from repo)
+
+---
+
 ## [0.1.2] — 2026-06-11
 
 ### Fixed
@@ -44,6 +55,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.3]: https://github.com/thekiwidev/tomd/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/thekiwidev/tomd/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/thekiwidev/tomd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.0

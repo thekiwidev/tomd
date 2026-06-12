@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -59,7 +60,7 @@ COLOR_RED = "#e07a7f"
 STYLE = f"""
 * {{ font-family: "Inter", -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }}
 QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
-#titleLabel {{ font-family: "Space Grotesk", "Inter", -apple-system, sans-serif; color: #f2f3f7; font-size: 22px; font-weight: 700; }}
+#titleLabel {{ font-family: "Space Grotesk", "Inter", -apple-system, sans-serif; color: #f2f3f7; font-size: 24px; font-weight: 500; letter-spacing: 0.015em; }}
 #subtitleLabel {{ color: {COLOR_MUTED}; font-size: 13px; }}
 #dropHint {{
     border: 2px dashed #34363f; border-radius: 14px;
@@ -80,7 +81,7 @@ QMainWindow, #centralWidget, #mainPage, #setupPage {{ background: #15161a; }}
 #fileSub[state="error"] {{ color: {COLOR_RED}; }}
 QPushButton {{
     background: #2a2c35; color: #d6d8e0; border: none;
-    border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600;
+    border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 500;
 }}
 QPushButton:hover {{ background: #343742; }}
 QPushButton:pressed {{ background: #3d404d; }}
@@ -90,15 +91,14 @@ QPushButton#runButton, QPushButton#installButton {{
 }}
 QPushButton#runButton:hover, QPushButton#installButton:hover {{ background: {COLOR_ACCENT}; }}
 QPushButton#runButton:disabled, QPushButton#installButton:disabled {{ background: #3a3554; color: #837fa6; }}
-QPushButton.rowAction {{ padding: 3px 9px; font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 11px; background: #2a3d33; color: #9fe0b8; border-radius: 8px; }}
-QPushButton.rowAction:hover {{ background: #345043; }}
 #dragChip {{
     font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
     color: #9fe0b8; background: #2a3d33; border-radius: 8px;
-    padding: 3px 9px; font-size: 11px; font-weight: 600;
+    padding: 4px 10px; font-size: 11px; font-weight: 600;
 }}
-#countLabel, #envLabel {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; color: {COLOR_MUTED}; font-size: 12px; }}
-#envLabel {{ font-size: 10px; }}
+#dragChip:hover {{ background: #345043; }}
+#countLabel {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; color: {COLOR_MUTED}; font-size: 12px; }}
+#envLabel {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; color: {COLOR_MUTED}; font-size: 10px; }}
 QCheckBox {{ color: #b6b9c2; font-size: 12px; spacing: 6px; }}
 QCheckBox::indicator {{
     width: 15px; height: 15px; border-radius: 4px;
@@ -300,26 +300,63 @@ class Toast(QLabel):
             self.move((parent.width() - self.width()) // 2, parent.height() - self.height() - 66)
 
 
-class DragChip(QWidget):
-    """Small handle that lets the user drag the converted .md out of the app."""
+class RowChip(QWidget):
+    """Base chip widget — same visual spec as drag .md: identical layout, font, padding."""
+
+    _CHIP_COLOR = "#9fe0b8"
+    _CHIP_ICON_SIZE = 12
+    _CHIP_ICON_BOX  = 14
+
+    def __init__(self, icon_name: str, label: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("dragChip")          # reuse the single shared stylesheet rule
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_Hover, True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(5)
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedSize(self._CHIP_ICON_BOX, self._CHIP_ICON_BOX)
+        self._icon_lbl.setAlignment(Qt.AlignCenter)
+        self._icon_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._text_lbl = QLabel(label)
+        self._text_lbl.setStyleSheet(
+            f'color: {self._CHIP_COLOR}; '
+            'font-family: "Inter", -apple-system, "SF Pro Text", "Segoe UI", sans-serif; '
+            'font-size: 11px; font-weight: 600; background: transparent;'
+        )
+        self._text_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout.addWidget(self._icon_lbl)
+        layout.addWidget(self._text_lbl)
+        self._set_icon(icon_name)
+
+    def _set_icon(self, name: str):
+        self._icon_lbl.setPixmap(icon_pixmap(name, self._CHIP_COLOR, self._CHIP_ICON_SIZE))
+
+    def set_content(self, icon_name: str, label: str):
+        self._set_icon(icon_name)
+        self._text_lbl.setText(label)
+
+
+class ActionChip(RowChip):
+    """Clickable RowChip — same look as drag .md but fires a signal on click."""
+
+    clicked = Signal()
+
+    def __init__(self, icon_name: str, label: str, parent=None):
+        super().__init__(icon_name, label, parent)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+
+
+class DragChip(RowChip):
+    """RowChip that initiates a file drag instead of emitting a click signal."""
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("dragChip")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(7, 3, 9, 3)
-        layout.setSpacing(4)
-        grip = QLabel()
-        grip.setPixmap(icon_pixmap("grip", "#9fe0b8", 12))
-        grip.setFixedSize(14, 14)
-        grip.setAlignment(Qt.AlignCenter)
-        grip.setAttribute(Qt.WA_TransparentForMouseEvents)
-        text = QLabel("drag .md")
-        text.setStyleSheet("color: #9fe0b8; font-size: 11px; font-weight: 600; background: transparent;")
-        text.setAttribute(Qt.WA_TransparentForMouseEvents)
-        layout.addWidget(grip)
-        layout.addWidget(text)
+        super().__init__("grip", "drag .md", parent)
         self.md_path = None
         self._press_pos = None
         self.setCursor(Qt.OpenHandCursor)
@@ -425,7 +462,7 @@ class FileRow(QFrame):
         layout.addWidget(self.status_label)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(1)
+        text_col.setSpacing(4)
         self.name_label = QLabel(source.name)
         self.name_label.setObjectName("fileName")
         self.name_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -450,23 +487,55 @@ class FileRow(QFrame):
         text_col.addLayout(sub_row)
         layout.addLayout(text_col, stretch=1)
 
-        self.copy_button = QPushButton("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 9))
-        self.copy_button.setProperty("class", "rowAction")
+        self.copy_button = ActionChip("copy", "Copy MD")
         self.copy_button.setToolTip("Copy the markdown content to the clipboard")
         self.copy_button.clicked.connect(self.copy_markdown)
 
         self.drag_chip = DragChip()
 
-        self.reveal_button = QPushButton("Reveal")
-        self.reveal_button.setIcon(themed_icon("folder", "#9fe0b8", 9))
-        self.reveal_button.setProperty("class", "rowAction")
+        self.reveal_button = ActionChip("folder", "Reveal")
         self.reveal_button.setToolTip("Show the .md file in Finder")
         self.reveal_button.clicked.connect(self.reveal)
 
-        for widget in (self.copy_button, self.drag_chip, self.reveal_button):
+        self.more_button = ActionChip("hash", "•••")
+        self.more_button.setToolTip("More actions")
+        self.more_button.clicked.connect(self._show_more_menu)
+        self.more_button.hide()
+
+        for widget in (self.copy_button, self.drag_chip, self.reveal_button, self.more_button):
             layout.addWidget(widget)
             widget.hide()
+
+        self._action_widgets = [self.copy_button, self.drag_chip, self.reveal_button]
+
+    def _show_more_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #1e1f26; border: 1px solid #34363f; border-radius: 8px; padding: 4px; }"
+            "QMenu::item { color: #d6d8e0; padding: 7px 16px; font-size: 12px; border-radius: 5px; }"
+            "QMenu::item:selected { background: #2a2c35; }"
+        )
+        copy_act = menu.addAction("Copy MD")
+        copy_act.triggered.connect(self.copy_markdown)
+        if self.md_path:
+            reveal_act = menu.addAction("Reveal in Finder")
+            reveal_act.triggered.connect(self.reveal)
+        menu.exec(self.more_button.mapToGlobal(self.more_button.rect().bottomLeft()))
+
+    def contextMenuEvent(self, event):
+        if self.state == DONE:
+            self._show_more_menu()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.state == DONE:
+            self._update_action_layout()
+
+    def _update_action_layout(self):
+        expanded = self.width() >= 460
+        for w in self._action_widgets:
+            w.setVisible(expanded)
+        self.more_button.setVisible(not expanded)
 
     def set_selected(self, value: bool):
         self.selected = value
@@ -478,8 +547,20 @@ class FileRow(QFrame):
 
     def _spin(self):
         self._spin_angle = (self._spin_angle + 30) % 360
-        rotated = self._loader_pixmap.transformed(QTransform().rotate(self._spin_angle), Qt.SmoothTransformation)
-        self.status_label.setPixmap(rotated)
+        dpr = self._loader_pixmap.devicePixelRatio()
+        phys = self._loader_pixmap.width()          # physical px (logical * dpr)
+        log  = phys / dpr                           # logical px
+        canvas = QPixmap(phys, phys)
+        canvas.fill(Qt.transparent)
+        canvas.setDevicePixelRatio(dpr)
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(log / 2, log / 2)
+        painter.rotate(self._spin_angle)
+        painter.translate(-log / 2, -log / 2)
+        painter.drawPixmap(0, 0, self._loader_pixmap)
+        painter.end()
+        self.status_label.setPixmap(canvas)
 
     def _show_sub_text(self, text: str):
         self._sub_icon.hide()
@@ -508,8 +589,7 @@ class FileRow(QFrame):
             self.md_path = Path(detail)
             self.drag_chip.md_path = self.md_path
             self._show_sub_text(f"→ {self.md_path.name}")
-            for widget in (self.copy_button, self.drag_chip, self.reveal_button):
-                widget.show()
+            self._update_action_layout()
         elif state == ERROR:
             self._show_sub_text(detail or "Conversion failed")
             self.sub_label.setToolTip(detail or "")
@@ -522,13 +602,11 @@ class FileRow(QFrame):
     def copy_markdown(self):
         if self.md_path and self.md_path.exists():
             QGuiApplication.clipboard().setText(self.md_path.read_text(encoding="utf-8"))
-            self.copy_button.setText("Copied")
-            self.copy_button.setIcon(themed_icon("check", "#9fe0b8", 9))
+            self.copy_button.set_content("check", "Copied")
             QTimer.singleShot(1500, self._reset_copy_button)
 
     def _reset_copy_button(self):
-        self.copy_button.setText("Copy MD")
-        self.copy_button.setIcon(themed_icon("copy", "#9fe0b8", 9))
+        self.copy_button.set_content("copy", "Copy MD")
 
     def reveal(self):
         if self.md_path:

@@ -2,6 +2,20 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.4] — 2026-06-12
+
+### Changed
+- `RowChip` base class: Copy MD, drag .md and Reveal are now all identical widgets (same layout, padding, icon size, font) — no more QPushButton vs QWidget rendering mismatch
+- Chip label font updated to Inter to match the app body font
+- All non-accent QPushButton labels (Add Files, Clear, Run/Stop, etc.) changed from font-weight 600 → 500
+- Title ("tomd") lightened to font-weight 500, size 24 px, letter-spacing 0.015 em
+- Count label ("Converting 6/6 — …") now uses JetBrains Mono
+- Spinner rotation fixed: QPainter-based rotation around the logical center eliminates wobble
+- Filename and sub-line ("→ output.md") spacing increased for breathing room
+- Row actions collapse to a ••• chip below 460 px window width; right-click always shows the action menu
+
+---
+
 ## [0.1.3] — 2026-06-12
 
 ### Changed
@@ -55,6 +69,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.4]: https://github.com/thekiwidev/tomd/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/thekiwidev/tomd/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/thekiwidev/tomd/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/thekiwidev/tomd/compare/v0.1.0...v0.1.1

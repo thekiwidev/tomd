@@ -99,6 +99,8 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.6]: https://github.com/thekiwidev/tomd/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/thekiwidev/tomd/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/thekiwidev/tomd/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/thekiwidev/tomd/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/thekiwidev/tomd/compare/v0.1.1...v0.1.2

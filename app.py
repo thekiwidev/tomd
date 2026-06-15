@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedLayout,
     QStackedWidget,
     QVBoxLayout,
@@ -337,6 +338,10 @@ class RowChip(QWidget):
         self._set_icon(icon_name)
         self._text_lbl.setText(label)
 
+    def set_text_visible(self, visible: bool):
+        """Show/hide the chip label (icon-only mode for narrow windows)."""
+        self._text_lbl.setVisible(visible)
+
 
 class ActionChip(RowChip):
     """Clickable RowChip — same look as drag .md but fires a signal on click."""
@@ -428,6 +433,8 @@ class SelectBox(QLabel):
 class FileRow(QFrame):
     selection_changed = Signal(object)  # emits self
 
+    _NAME_MIN_WIDTH = 60  # px — name/sub never shrink below this before eliding
+
     STATUS = {
         PENDING: ("circle", COLOR_MUTED),
         QUEUED: ("clock", COLOR_MUTED),
@@ -463,9 +470,18 @@ class FileRow(QFrame):
 
         text_col = QVBoxLayout()
         text_col.setSpacing(4)
+        self._full_name = source.name
+        self._full_sub = ""
         self.name_label = QLabel(source.name)
         self.name_label.setObjectName("fileName")
-        self.name_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.name_label.setToolTip(source.name)
+        # The name column flexes with the window: it takes the leftover space
+        # (so it's long on a wide window) but can shrink all the way down to
+        # _NAME_MIN_WIDTH, middle-elided in _elide_labels(), so the action chips
+        # are never pushed off the row. Ignored policy lets it shrink past its
+        # text width; the minimum keeps the name from vanishing entirely.
+        self.name_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.name_label.setMinimumWidth(self._NAME_MIN_WIDTH)
 
         # Sub row: file icon initially, replaced by text on status changes.
         sub_row = QHBoxLayout()
@@ -477,11 +493,13 @@ class FileRow(QFrame):
         self._sub_icon.setAlignment(Qt.AlignCenter)
         self.sub_label = QLabel()
         self.sub_label.setObjectName("fileSub")
-        self.sub_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # Same flex behaviour as the name so a long "→ output.md" also truncates
+        # instead of widening the row and forcing a horizontal scrollbar.
+        self.sub_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.sub_label.setMinimumWidth(self._NAME_MIN_WIDTH)
         self.sub_label.hide()
         sub_row.addWidget(self._sub_icon)
-        sub_row.addWidget(self.sub_label)
-        sub_row.addStretch()
+        sub_row.addWidget(self.sub_label, stretch=1)
 
         text_col.addWidget(self.name_label)
         text_col.addLayout(sub_row)
@@ -530,12 +548,32 @@ class FileRow(QFrame):
         super().resizeEvent(event)
         if self.state == DONE:
             self._update_action_layout()
+        self._elide_labels()
+
+    def _elide_labels(self):
+        """Middle-elide the filename and the sub-line to whatever width the
+        layout currently gives them, so the extension stays visible and neither
+        line ever widens the row past the window (no horizontal scrollbar)."""
+        fm = self.name_label.fontMetrics()
+        self.name_label.setText(
+            fm.elidedText(self._full_name, Qt.ElideMiddle, max(self.name_label.width(), 0))
+        )
+        if self._full_sub:
+            sfm = self.sub_label.fontMetrics()
+            self.sub_label.setText(
+                sfm.elidedText(self._full_sub, Qt.ElideMiddle, max(self.sub_label.width(), 0))
+            )
 
     def _update_action_layout(self):
-        expanded = self.width() >= 460
+        # Action chips are always shown once a row is DONE; when the window is
+        # narrower than 560 px they drop their text and show icon-only
+        # (tooltips carry the label). Gauge the *window* width, not the row's,
+        # so the breakpoint matches what the user sees.
+        expanded = self.window().width() >= 560
         for w in self._action_widgets:
-            w.setVisible(expanded)
-        self.more_button.setVisible(not expanded)
+            w.setVisible(True)
+            w.set_text_visible(expanded)
+        self.more_button.setVisible(False)
 
     def set_selected(self, value: bool):
         self.selected = value
@@ -564,10 +602,14 @@ class FileRow(QFrame):
 
     def _show_sub_text(self, text: str):
         self._sub_icon.hide()
+        self._full_sub = text
+        self.sub_label.setToolTip(text)
         self.sub_label.setText(text)
         self.sub_label.show()
+        self._elide_labels()
 
     def _show_sub_icon(self):
+        self._full_sub = ""
         self.sub_label.hide()
         self._sub_icon.show()
 
@@ -787,6 +829,9 @@ class MainPage(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setObjectName("fileScroll")
         self.scroll.setWidgetResizable(True)
+        # Never scroll sideways — rows must always fit the window width so the
+        # action chips stay visible; long names/sub-lines elide instead.
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         list_container = QWidget()
         list_container.setObjectName("fileListContainer")
         self.list_layout = QVBoxLayout(list_container)
@@ -838,6 +883,16 @@ class MainPage(QWidget):
         self.env_label = QLabel("")
         self.env_label.setObjectName("envLabel")
         root.addWidget(self.env_label)
+
+    def resizeEvent(self, event):
+        # Re-apply responsive chip text + label elision to every row on any
+        # window resize, so the behaviour doesn't depend on each row receiving
+        # its own resize event (it may not when widths are constrained).
+        super().resizeEvent(event)
+        for row in self.rows:
+            if row.state == DONE:
+                row._update_action_layout()
+            row._elide_labels()
 
     # ---- environment ----
     def set_markitdown(self, exe: str):
@@ -1002,6 +1057,8 @@ class MainWindow(QMainWindow):
         self.resize(620, 700)
         self.setMinimumSize(480, 460)
         self.setAcceptDrops(True)
+        self.settings = QSettings("thekiwidev", "tomd")
+        self._restore_geometry()
 
         central = QWidget()
         central.setObjectName("centralWidget")
@@ -1032,7 +1089,25 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.main_page)
         self.toast.show_message("MarkItDown is ready", kind="success")
 
+    def _restore_geometry(self):
+        saved = self.settings.value("window_geometry")
+        if isinstance(saved, QByteArray) and not saved.isEmpty():
+            self.restoreGeometry(saved)
+            self._clamp_on_screen()
+
+    def _clamp_on_screen(self):
+        """If restored geometry lands off every screen (e.g. an unplugged
+        monitor), recenter the window on the primary screen."""
+        frame = self.frameGeometry()
+        if any(s.availableGeometry().intersects(frame) for s in QGuiApplication.screens()):
+            return
+        available = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(self.width(), available.width()),
+                    min(self.height(), available.height()))
+        self.move(available.center() - self.rect().center())
+
     def closeEvent(self, event):
+        self.settings.setValue("window_geometry", self.saveGeometry())
         self.main_page.shutdown()
         super().closeEvent(event)
 

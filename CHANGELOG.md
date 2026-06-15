@@ -2,6 +2,19 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.5] — 2026-06-15
+
+### Added
+- Action buttons (Copy MD, drag .md, Reveal) collapse to icon-only when the window is narrower than 560 px; tooltips carry the labels
+- Main window now remembers its size **and** position between launches, clamping back on-screen if the saved spot lands off every display
+
+### Changed
+- File names are middle-elided (the extension stays visible) and shrink responsively with the window instead of overflowing; the full name shows on hover
+- The converted-file sub-line (`→ output.md`) is likewise middle-elided so it no longer widens the row
+
+### Fixed
+- The file list never scrolls horizontally — rows always fit the window width, so the action chips stay visible at any size
+
 ## [0.1.4] — 2026-06-12
 
 ### Changed

@@ -2,6 +2,23 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.6] — 2026-06-15
+
+### Added
+- **Background app + menu-bar icon.** tomd now keeps running when the main window is closed. A white menu-bar/tray icon (the app's `#` + arrow logo) gives quick access; clicking it opens a menu — Open window view · Open drop zone · Settings · Auto-convert · Quit — without forcing the window open.
+- **Smart drop zone.** A frameless, always-on-top mini-window pinned to a screen corner of your choosing, sharing the same conversion queue as the main window. It stays hidden until you drag a file toward its corner: a translucent "ghost" appears for ~1s and then opens so you can drop. Drag away without dropping and it dismisses. Finished markdown can be dragged straight back out.
+- **Settings window** (menu bar, the window's gear button, or ⌘,): enable/position the drop zone, auto-convert on drop, run in the menu bar only (hide the Dock icon), and start tomd at login.
+- macOS: the drop zone shows on every Space; menu-bar-only mode hides the Dock icon (via `pyobjc`, an optional macOS-only dependency).
+- Start-at-login support (macOS LaunchAgent / Windows startup).
+
+### Changed
+- The auto-convert toggle moved out of the window view into Settings and the menu bar.
+- On a narrow window, **all** toolbar buttons (Add Files, Clear, Run, …) collapse to icon-only, not just the per-row actions.
+- Clearing the list is now universal — clearing from the window or the drop zone clears both.
+
+### Fixed
+- The drop zone now re-arms after every use (previously it stopped triggering after the first drop-and-close).
+
 ## [0.1.5] — 2026-06-15
 
 ### Added

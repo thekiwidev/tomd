@@ -12,12 +12,35 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, QSettings, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDrag, QGuiApplication, QIcon, QPainter, QPixmap, QTransform
+from PySide6.QtCore import (
+    QByteArray,
+    QMimeData,
+    QPoint,
+    QRect,
+    QSettings,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+    Signal,
+)
+from PySide6.QtGui import (
+    QAction,
+    QDrag,
+    QGuiApplication,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QShortcut,
+    QTransform,
+)
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -31,11 +54,13 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedLayout,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
 import backend
+import native
 
 APP_NAME = "tomd"
 
@@ -174,6 +199,10 @@ ICON_PATHS = {
         '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>'
         '<path d="M14 2v4a2 2 0 0 0 2 2h4"/>'
     ),
+    "settings": (
+        '<path d="M20 7h-9"/><path d="M14 17H5"/>'
+        '<circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>'
+    ),
 }
 
 
@@ -200,6 +229,50 @@ def themed_icon(name: str, color: str, size: int = 16, filled: bool = False) -> 
     return QIcon(icon_pixmap(name, color, size, filled))
 
 
+# The two glyphs from assets/icon.svg — the # and the downward return arrow —
+# so the menu-bar icon matches the desktop app icon. Rendered in any colour.
+_APP_GLYPH_HASH = (
+    "M117.9 371L129 311H103.5V291.5H132.6L143.4 231.5H114V212H147L158.1 152H179.1"
+    "L168 212H216L227.1 152H248.1L237 212H262.5V231.5H233.4L222.6 291.5H252V311H219"
+    "L207.9 371H186.9L198 311H150L138.9 371H117.9ZM153.6 291.5H201.6L212.4 231.5H164.4"
+    "L153.6 291.5Z"
+)
+_APP_GLYPH_ARROW = (
+    "M369.689 355.796L362.093 363.398L369.689 371L377.284 363.398L369.689 355.796Z"
+    "M283.743 173C280.894 173 278.161 174.133 276.147 176.149C274.132 178.166 273 180.901"
+    " 273 183.753C273 186.604 274.132 189.339 276.147 191.356C278.161 193.373 280.894"
+    " 194.505 283.743 194.505V173ZM308.377 309.634L362.093 363.398L377.284 348.194L323.568"
+    " 294.43L308.377 309.634ZM377.284 363.398L431 309.634L415.809 294.43L362.093 348.194"
+    "L377.284 363.398ZM380.432 355.796V248.269H358.945V355.796H380.432ZM305.23 173H283.743"
+    "V194.505H305.23V173ZM380.432 248.269C380.432 228.306 372.509 209.161 358.406 195.046"
+    "C344.302 180.93 325.174 173 305.23 173V194.505C319.476 194.505 333.139 200.17 343.212"
+    " 210.252C353.286 220.335 358.945 234.01 358.945 248.269H380.432Z"
+)
+
+
+def app_logo_pixmap(color: str, size: int = 18) -> QPixmap:
+    # Tight square viewBox cropped around the two glyphs so they fill the icon
+    # (the full 525×525 art has a lot of empty margin, making it look tiny).
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="97 92 340 340">'
+        f'<path d="{_APP_GLYPH_HASH}" fill="{color}"/>'
+        f'<path d="{_APP_GLYPH_ARROW}" fill="{color}"/></svg>'
+    )
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    renderer.render(painter)
+    painter.end()
+    pixmap.setDevicePixelRatio(2)
+    return pixmap
+
+
+def app_logo_icon(color: str, size: int = 18) -> QIcon:
+    return QIcon(app_logo_pixmap(color, size))
+
+
 def collect_paths(urls):
     """Expand dropped URLs into a flat list of convertible file paths."""
     files = []
@@ -221,6 +294,45 @@ def reveal_in_file_manager(path: Path):
         subprocess.Popen(["explorer", "/select,", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path.parent)])
+
+
+DOCK_ANCHORS = (
+    "top-left", "top-right", "bottom-left",
+    "bottom-right", "left-center", "right-center",
+)
+DOCK_ANCHOR_LABELS = {
+    "top-left": "Top left",
+    "top-right": "Top right",
+    "bottom-left": "Bottom left",
+    "bottom-right": "Bottom right",
+    "left-center": "Left center",
+    "right-center": "Right center",
+}
+
+
+def dock_geometry(anchor: str, screen: QRect, size: QSize, margin: int = 14) -> QRect:
+    """Where a dock of `size` sits for `anchor` within a screen's available
+    rect, inset by `margin`. Pure geometry — no widgets — so it's unit-checkable.
+    The result is clamped to stay fully inside `screen`."""
+    w, h = size.width(), size.height()
+    left = screen.left() + margin
+    right = screen.right() - w - margin + 1
+    top = screen.top() + margin
+    bottom = screen.bottom() - h - margin + 1
+    mid_y = screen.top() + (screen.height() - h) // 2
+    coords = {
+        "top-left": (left, top),
+        "top-right": (right, top),
+        "bottom-left": (left, bottom),
+        "bottom-right": (right, bottom),
+        "left-center": (left, mid_y),
+        "right-center": (right, mid_y),
+    }
+    x, y = coords.get(anchor, coords["bottom-right"])
+    # Clamp so a dock larger than the screen (or odd margins) never spills off.
+    x = max(screen.left(), min(x, screen.right() - w + 1))
+    y = max(screen.top(), min(y, screen.bottom() - h + 1))
+    return QRect(x, y, w, h)
 
 
 class QueueWorker(QThread):
@@ -767,7 +879,13 @@ class SetupPage(QWidget):
 
 
 class MainPage(QWidget):
-    """The converter UI: drop zone, queue, progress, actions."""
+    """The converter UI: drop zone, queue, progress, actions. Also acts as the
+    shared controller: the dock feeds files in here and listens to these relay
+    signals so both views share one conversion queue."""
+
+    row_converted = Signal(object, str)   # (FileRow, md_path)
+    row_failed = Signal(object, str)      # (FileRow, error)
+    cleared = Signal()                    # list emptied — dock mirrors it
 
     def __init__(self, window, parent=None):
         super().__init__(parent)
@@ -802,10 +920,23 @@ class MainPage(QWidget):
         title_col.addWidget(subtitle)
         header.addLayout(title_col)
         header.addStretch()
-        self.auto_convert = QCheckBox("Auto-convert on drop")
+        # The auto-convert toggle lives in Settings + the menu bar now, not in
+        # the window view. The checkbox is kept (hidden) as the shared state.
+        self.auto_convert = QCheckBox("Auto-convert on drop", self)
         self.auto_convert.setChecked(self.settings.value("auto_convert_on_drop", False, type=bool))
         self.auto_convert.toggled.connect(lambda v: self.settings.setValue("auto_convert_on_drop", v))
-        header.addWidget(self.auto_convert, alignment=Qt.AlignTop)
+        self.auto_convert.hide()
+        self.settings_button = QPushButton()
+        self.settings_button.setIcon(themed_icon("settings", "#d6d8e0", 15))
+        self.settings_button.setToolTip("Settings (⌘,)")
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        self.settings_button.setFixedSize(28, 28)
+        self.settings_button.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 7px; }"
+            "QPushButton:hover { background: #23252e; }"
+        )
+        self.settings_button.clicked.connect(self.open_settings)
+        header.addWidget(self.settings_button, alignment=Qt.AlignTop)
         root.addLayout(header)
 
         # Stacked area: big drop hint when empty, file list once populated.
@@ -880,19 +1011,48 @@ class MainPage(QWidget):
         bottom.addWidget(self.run_button)
         root.addLayout(bottom)
 
+        # Toolbar buttons that collapse to icon-only on a narrow window. The
+        # Run button is dynamic (Run/Stop) so it's handled in refresh_chrome.
+        self._compact = False
+        self._run_label = "Run"
+        self._labeled_buttons = [
+            (self.browse_button, "Add Files…"),
+            (self.clear_button, "Clear"),
+            (self.remove_selected_button, "Remove Selected"),
+            (self.reveal_selected_button, "Reveal Selected"),
+        ]
+        for btn, label in self._labeled_buttons:
+            btn.setToolTip(label)
+
         self.env_label = QLabel("")
         self.env_label.setObjectName("envLabel")
         root.addWidget(self.env_label)
 
+    RESPONSIVE_BREAKPOINT = 560
+
     def resizeEvent(self, event):
-        # Re-apply responsive chip text + label elision to every row on any
-        # window resize, so the behaviour doesn't depend on each row receiving
-        # its own resize event (it may not when widths are constrained).
+        # Re-apply responsive chip text + label elision to every row, and
+        # collapse the toolbar buttons to icon-only, on any window resize — so
+        # nothing overflows when the window is small.
         super().resizeEvent(event)
+        compact = self.width() < self.RESPONSIVE_BREAKPOINT
+        if compact != self._compact:
+            self._compact = compact
+            self._apply_button_compact()
         for row in self.rows:
             if row.state == DONE:
                 row._update_action_layout()
             row._elide_labels()
+
+    def _apply_button_compact(self):
+        for btn, label in self._labeled_buttons:
+            btn.setText("" if self._compact else label)
+        self.run_button.setText("" if self._compact else self._run_label)
+
+    def open_settings(self):
+        controller = getattr(self.window, "controller", None)
+        if controller:
+            controller.open_settings()
 
     # ---- environment ----
     def set_markitdown(self, exe: str):
@@ -917,7 +1077,7 @@ class MainPage(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(self, "Choose files to convert")
         self.add_files([Path(p) for p in paths])
 
-    def add_files(self, paths) -> int:
+    def add_files(self, paths) -> list:
         existing = {row.source for row in self.rows}
         new_rows = []
         for path in paths:
@@ -932,7 +1092,21 @@ class MainPage(QWidget):
         if new_rows and self.auto_convert.isChecked() and self.markitdown_exe:
             self.enqueue_rows(new_rows)
         self.refresh_chrome()
-        return len(new_rows)
+        return new_rows
+
+    def rows_for(self, paths) -> list:
+        """Existing rows whose source is in `paths` — lets the dock reflect a
+        file that was already added/converted in a previous drop."""
+        wanted = set(paths)
+        return [row for row in self.rows if row.source in wanted]
+
+    def convert_pending(self, rows):
+        """Enqueue any of `rows` that aren't already done/in-flight. Used by the
+        dock's Convert button when auto-convert is off."""
+        todo = [r for r in rows if r.state in (PENDING, ERROR)]
+        if todo and self.markitdown_exe:
+            self.enqueue_rows(todo)
+            self.refresh_chrome()
 
     def clear_rows(self):
         if self.in_flight():
@@ -944,6 +1118,7 @@ class MainPage(QWidget):
         self.batch_total = self.batch_done = 0
         self.progress.hide()
         self.refresh_chrome()
+        self.cleared.emit()      # mirror the clear into the drop zone
 
     def remove_selected(self):
         selected = [r for r in self.rows if r.selected and r.state != RUNNING]
@@ -972,15 +1147,16 @@ class MainPage(QWidget):
         if not busy:
             self.count_label.setText(f"{len(self.rows)} file(s)" if self.rows else "")
         if busy:
-            self.run_button.setText("Stop")
+            self._run_label = "Stop"
             self.run_button.setIcon(themed_icon("square", "white", 11))
             self.run_button.setToolTip("Stop after the current file; queued files go back to pending")
             self.run_button.setEnabled(True)
         else:
-            self.run_button.setText("Run")
+            self._run_label = "Run"
             self.run_button.setIcon(themed_icon("refresh", "white", 11))
-            self.run_button.setToolTip("")
+            self.run_button.setToolTip("Run conversion")
             self.run_button.setEnabled(pending > 0 and self.markitdown_exe is not None)
+        self.run_button.setText("" if self._compact else self._run_label)
         self.clear_button.setEnabled(bool(self.rows) and not busy)
         removable = [r for r in selected if r.state != RUNNING]
         revealable = [r for r in selected if r.md_path]
@@ -1026,10 +1202,12 @@ class MainPage(QWidget):
 
     def on_job_done(self, row, output):
         row.set_state(DONE, output)
+        self.row_converted.emit(row, output)
         self._job_finished()
 
     def on_job_failed(self, row, error):
         row.set_state(ERROR, error)
+        self.row_failed.emit(row, error)
         self.window.toast.show_message(f"Could not convert {row.source.name}", kind="error")
         self._job_finished()
 
@@ -1059,6 +1237,11 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self.settings = QSettings("thekiwidev", "tomd")
         self._restore_geometry()
+        self.controller = None       # set by AppController; used by the shortcut
+
+        # ⌘, / Ctrl+, opens Settings from the window view.
+        prefs = QShortcut(QKeySequence(QKeySequence.StandardKey.Preferences), self)
+        prefs.activated.connect(lambda: self.controller and self.controller.open_settings())
 
         central = QWidget()
         central.setObjectName("centralWidget")
@@ -1107,8 +1290,9 @@ class MainWindow(QMainWindow):
         self.move(available.center() - self.rect().center())
 
     def closeEvent(self, event):
+        # Closing the main window just hides it — tomd keeps running in the tray
+        # (and the dock stays live). The worker is stopped on app quit instead.
         self.settings.setValue("window_geometry", self.saveGeometry())
-        self.main_page.shutdown()
         super().closeEvent(event)
 
     def resizeEvent(self, event):
@@ -1145,6 +1329,400 @@ class MainWindow(QMainWindow):
         hint.style().polish(hint)
 
 
+DOCK_STYLE = f"""
+QFrame#dockRoot {{
+    background: #16171d;
+    border: 1px solid #2a2c35;
+    border-radius: 14px;
+}}
+QLabel#dockTitle {{
+    color: {COLOR_TEXT};
+    font-family: "Space Grotesk", -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px; font-weight: 500;
+}}
+QPushButton#dockIconBtn {{
+    background: transparent; border: none; border-radius: 6px;
+    color: {COLOR_MUTED}; padding: 2px 8px; font-size: 12px;
+}}
+QPushButton#dockIconBtn:hover {{ background: #23252e; }}
+QFrame#dockDrop {{
+    border: 1.5px dashed #34363f; border-radius: 10px;
+}}
+QFrame#dockDrop[dragOver="true"] {{
+    border-color: {COLOR_ACCENT}; background: #1d1b2e;
+}}
+QLabel#dockHint {{ color: {COLOR_MUTED}; font-size: 12px; padding: 28px 8px; }}
+QFrame#dockEntry {{ background: #1e1f26; border-radius: 8px; }}
+QLabel#dockEntryName {{
+    color: {COLOR_TEXT};
+    font-family: "Inter", -apple-system, "Segoe UI", sans-serif; font-size: 12px;
+}}
+QScrollArea#dockScroll {{ background: transparent; border: none; }}
+QPushButton#dockConvert {{
+    background: {COLOR_ACCENT}; color: white; border: none; border-radius: 8px;
+    padding: 6px 16px; font-size: 12px; font-weight: 600;
+}}
+QPushButton#dockConvert:hover {{ background: #8576f5; }}
+"""
+
+DOCK_MENU_STYLE = (
+    "QMenu { background: #1e1f26; border: 1px solid #34363f; border-radius: 8px; padding: 4px; }"
+    "QMenu::item { color: #d6d8e0; padding: 7px 16px; font-size: 12px; border-radius: 5px; }"
+    "QMenu::item:selected { background: #2a2c35; }"
+)
+
+COMBO_STYLE = (
+    "QComboBox { background: #1e1f26; color: #d6d8e0; border: 1px solid #34363f;"
+    " border-radius: 7px; padding: 5px 10px; font-size: 12px; min-width: 120px; }"
+    "QComboBox:hover { border-color: #4a4d59; }"
+    "QComboBox::drop-down { border: none; width: 18px; }"
+    "QComboBox QAbstractItemView { background: #1e1f26; color: #d6d8e0;"
+    " border: 1px solid #34363f; selection-background-color: #2a2c35; outline: none; }"
+)
+
+SENSOR_STYLE = f"""
+QFrame#sensorNub {{
+    background: rgba(22, 23, 29, 0.78);
+    border: 1px solid {COLOR_ACCENT};
+    border-radius: 14px;
+}}
+QFrame#sensorNub[dragOver="true"] {{ background: rgba(40, 36, 70, 0.92); }}
+QLabel#sensorHint {{ color: {COLOR_MUTED}; font-size: 9px; }}
+"""
+
+
+class DockEntry(QFrame):
+    """One compact file line inside the dock: status + elided name + a
+    drag-out handle (enabled once the .md exists)."""
+
+    _NAME_MIN_WIDTH = 70
+
+    def __init__(self, source: Path, parent=None):
+        super().__init__(parent)
+        self.setObjectName("dockEntry")
+        self.source = source
+        self.row = None              # the shared MainPage FileRow this mirrors
+        self._full_name = source.name
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(7)
+
+        self.status_label = QLabel()
+        self.status_label.setFixedSize(14, 14)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setPixmap(icon_pixmap("clock", COLOR_MUTED, 11))
+        layout.addWidget(self.status_label)
+
+        self.name_label = QLabel(source.name)
+        self.name_label.setObjectName("dockEntryName")
+        self.name_label.setToolTip(source.name)
+        self.name_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.name_label.setMinimumWidth(self._NAME_MIN_WIDTH)
+        layout.addWidget(self.name_label, stretch=1)
+
+        self.drag_chip = DragChip()
+        self.drag_chip.set_text_visible(False)   # icon-only — the dock is narrow
+        self.drag_chip.hide()
+        layout.addWidget(self.drag_chip)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        fm = self.name_label.fontMetrics()
+        self.name_label.setText(
+            fm.elidedText(self._full_name, Qt.ElideMiddle, max(self.name_label.width(), 0))
+        )
+
+    def set_running(self):
+        self.status_label.setPixmap(icon_pixmap("loader", COLOR_AMBER, 11))
+
+    def set_done(self, md_path: Path):
+        self.status_label.setPixmap(icon_pixmap("check", COLOR_GREEN, 11))
+        self.drag_chip.md_path = md_path
+        self.drag_chip.show()
+
+    def set_failed(self, error: str):
+        self.status_label.setPixmap(icon_pixmap("x", COLOR_RED, 11))
+        self.setToolTip(error or "Conversion failed")
+
+
+class DockWindow(QWidget):
+    """Always-on-top, frameless mini-window pinned to a screen corner. Files
+    dropped here are converted through the shared MainPage queue; finished
+    markdown can be dragged straight back out.
+
+    Can appear as a translucent *ghost* (summoned by the edge sensor): a drag
+    hovering over it for a moment 'opens' it (solidifies); dragging away
+    dismisses it."""
+
+    opened = Signal()       # ghost solidified into the real drop zone
+    dismissed = Signal()    # ghost left without opening — re-arm the sensor
+
+    def __init__(self, controller: "MainPage"):
+        super().__init__()
+        self.controller = controller
+        self.settings = QSettings("thekiwidev", "tomd")
+        self.anchor = self.settings.value("dock_anchor", "bottom-right")
+        if self.anchor not in DOCK_ANCHORS:
+            self.anchor = "bottom-right"
+        self._entries = {}           # Path -> DockEntry
+        self._ghost = False          # showing as a translucent preview
+        self._transient = False      # summoned by a drag, not yet dropped/pinned
+        self._dwell = QTimer(self, singleShot=True, interval=1000)
+        self._dwell.timeout.connect(self._open_from_ghost)
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAcceptDrops(True)
+        self.setFixedSize(300, 260)   # compact + predictable; entries scroll
+        self.setStyleSheet(DOCK_STYLE)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.root = QFrame()
+        self.root.setObjectName("dockRoot")
+        outer.addWidget(self.root)
+        root = QVBoxLayout(self.root)
+        root.setContentsMargins(12, 10, 12, 12)
+        root.setSpacing(10)
+
+        # Header: title + open-app + close(hide)
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        logo = QLabel()
+        logo.setPixmap(icon_pixmap("hash", COLOR_ACCENT, 15))
+        title = QLabel("tomd")
+        title.setObjectName("dockTitle")
+        header.addWidget(logo)
+        header.addWidget(title)
+        header.addStretch()
+        self.anchor_button = QPushButton()
+        self.anchor_button.setObjectName("dockIconBtn")
+        self.anchor_button.setIcon(themed_icon("grip", COLOR_MUTED, 13))
+        self.anchor_button.setToolTip("Dock position")
+        self.anchor_button.setFixedSize(24, 24)
+        self.anchor_button.clicked.connect(self._show_anchor_menu)
+        self.open_button = QPushButton()
+        self.open_button.setObjectName("dockIconBtn")
+        self.open_button.setIcon(themed_icon("arrow-down-to-line", COLOR_MUTED, 13))
+        self.open_button.setToolTip("Open the full tomd window")
+        self.open_button.setFixedSize(24, 24)
+        self.open_button.clicked.connect(self.open_main_window)
+        self.close_button = QPushButton()
+        self.close_button.setObjectName("dockIconBtn")
+        self.close_button.setIcon(themed_icon("x", COLOR_MUTED, 13))
+        self.close_button.setToolTip("Hide the dock (tomd keeps running)")
+        self.close_button.setFixedSize(24, 24)
+        self.close_button.clicked.connect(self.close)   # close() → closeEvent → re-arm sensor
+        header.addWidget(self.anchor_button)
+        header.addWidget(self.open_button)
+        header.addWidget(self.close_button)
+        root.addLayout(header)
+
+        # Drop area / entry list
+        self.drop_zone = QFrame()
+        self.drop_zone.setObjectName("dockDrop")
+        dz = QVBoxLayout(self.drop_zone)
+        dz.setContentsMargins(0, 0, 0, 0)
+        self.empty_hint = QLabel("Drop files here to convert")
+        self.empty_hint.setObjectName("dockHint")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        dz.addWidget(self.empty_hint)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("dockScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        list_container = QWidget()
+        self.list_layout = QVBoxLayout(list_container)
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(5)
+        self.list_layout.addStretch()
+        self.scroll.setWidget(list_container)
+        self.scroll.hide()
+        dz.addWidget(self.scroll)
+        root.addWidget(self.drop_zone, stretch=1)
+
+        # Footer: Convert (when files are pending) + Clear
+        footer = QHBoxLayout()
+        self.convert_button = QPushButton("Convert")
+        self.convert_button.setObjectName("dockConvert")
+        self.convert_button.setIcon(themed_icon("refresh", "white", 11))
+        self.convert_button.clicked.connect(self._convert_pending)
+        self.convert_button.hide()
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.setObjectName("dockIconBtn")
+        # Clear is universal: delegate to the shared controller, which empties
+        # the queue and emits `cleared` so both views clear together.
+        self.clear_button.clicked.connect(controller.clear_rows)
+        self.clear_button.hide()
+        footer.addWidget(self.clear_button)
+        footer.addStretch()
+        footer.addWidget(self.convert_button)
+        root.addLayout(footer)
+
+        controller.row_converted.connect(self._on_converted)
+        controller.row_failed.connect(self._on_failed)
+        controller.cleared.connect(self.clear_entries)
+
+    # ---- positioning ----
+    def _target_screen(self):
+        return self.screen() or QGuiApplication.primaryScreen()
+
+    def reposition(self):
+        geo = dock_geometry(self.anchor, self._target_screen().availableGeometry(), self.size())
+        self.setGeometry(geo)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reposition()
+
+    def set_anchor(self, anchor: str):
+        self.anchor = anchor
+        self.settings.setValue("dock_anchor", anchor)
+        self.reposition()
+
+    def _show_anchor_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet(DOCK_MENU_STYLE)
+        for key in DOCK_ANCHORS:
+            act = menu.addAction(DOCK_ANCHOR_LABELS[key])
+            act.setCheckable(True)
+            act.setChecked(key == self.anchor)
+            act.triggered.connect(lambda _=False, k=key: self.set_anchor(k))
+        menu.exec(self.anchor_button.mapToGlobal(QPoint(0, self.anchor_button.height())))
+
+    def open_main_window(self):
+        win = self.controller.window
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    # ---- ghost mode (summoned by the edge sensor) ----
+    def show_ghost(self):
+        """Appear translucently at the anchor; after a short dwell the drag
+        opens it. This open is transient — leaving without a drop dismisses it."""
+        self._ghost = True
+        self._transient = True
+        self.setWindowOpacity(0.62)
+        self.show()
+        self.raise_()
+        self._dwell.start()              # ghost shows for ~1s, then solidifies
+
+    def pin(self):
+        """Make the drop zone a persistent window (opened from the tray, or
+        after a drop) — no longer auto-dismissed by a drag leaving."""
+        self._ghost = False
+        self._transient = False
+        self.setWindowOpacity(1.0)
+
+    def _open_from_ghost(self):
+        if self._ghost:
+            self._ghost = False
+            self.setWindowOpacity(1.0)
+            self.opened.emit()
+
+    # ---- drag & drop in ----
+    def dragEnterEvent(self, event):
+        if event.source() is None and event.mimeData().hasUrls():
+            self._set_drag_over(True)
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._set_drag_over(False)
+        if self._transient:
+            # Summoned by a drag but the file was carried away without dropping
+            # — dismiss the whole zone and re-arm the hot-corner.
+            self._dwell.stop()
+            self._ghost = False
+            self._transient = False
+            self.hide()
+            self.dismissed.emit()
+
+    def dropEvent(self, event):
+        self._set_drag_over(False)
+        self._dwell.stop()
+        opened = self._ghost or self._transient
+        self.pin()                       # a drop pins the zone open to show results
+        if opened:
+            self.opened.emit()
+        paths = collect_paths(event.mimeData().urls())
+        self._accept_drop(paths)
+        event.acceptProposedAction()
+
+    def _set_drag_over(self, over: bool):
+        self.drop_zone.setProperty("dragOver", over)
+        self.drop_zone.style().unpolish(self.drop_zone)
+        self.drop_zone.style().polish(self.drop_zone)
+
+    def _accept_drop(self, paths):
+        if not paths:
+            return
+        new_rows = self.controller.add_files(paths)
+        # Track both freshly-added rows and any that already existed (e.g. a
+        # file dropped earlier on the main window) so the dock reflects them.
+        for row in new_rows + self.controller.rows_for(paths):
+            self._track(row)
+        self._refresh_chrome()
+
+    def _track(self, row):
+        if row.source in self._entries:
+            return
+        entry = DockEntry(row.source)
+        entry.row = row
+        self._entries[row.source] = entry
+        self.list_layout.insertWidget(self.list_layout.count() - 1, entry)
+        if row.state == RUNNING:
+            entry.set_running()
+        elif row.state == DONE and row.md_path:
+            entry.set_done(row.md_path)
+        elif row.state == ERROR:
+            entry.set_failed("Conversion failed")
+
+    def _on_converted(self, row, md_path):
+        entry = self._entries.get(row.source)
+        if entry:
+            entry.set_done(Path(md_path))
+            self._refresh_chrome()
+
+    def _on_failed(self, row, error):
+        entry = self._entries.get(row.source)
+        if entry:
+            entry.set_failed(error)
+            self._refresh_chrome()
+
+    def _convert_pending(self):
+        self.controller.convert_pending([e.row for e in self._entries.values() if e.row])
+        for entry in self._entries.values():
+            if entry.row and entry.row.state in (QUEUED, RUNNING):
+                entry.set_running()
+        self._refresh_chrome()
+
+    def clear_entries(self):
+        for entry in self._entries.values():
+            entry.setParent(None)
+        self._entries.clear()
+        self._refresh_chrome()
+
+    def _refresh_chrome(self):
+        has = bool(self._entries)
+        self.empty_hint.setVisible(not has)
+        self.scroll.setVisible(has)
+        self.clear_button.setVisible(has)
+        pending = any(e.row and e.row.state in (PENDING, ERROR) for e in self._entries.values())
+        self.convert_button.setVisible(pending and self.controller.markitdown_exe is not None)
+
+    def closeEvent(self, event):
+        # The dock never truly closes — hide it; tomd lives in the tray. Emit
+        # dismissed so the controller re-arms the hot-corner sensor.
+        event.ignore()
+        self._ghost = False
+        self._transient = False
+        self.setWindowOpacity(1.0)
+        self.hide()
+        self.dismissed.emit()
+
+
 def checkbox_indicator_rule() -> str:
     """QSS can only load indicator images from files, so write the checkmark
     SVG into the app data dir and point a stylesheet rule at it."""
@@ -1159,12 +1737,339 @@ def checkbox_indicator_rule() -> str:
     return f'QCheckBox::indicator:checked {{ image: url("{url}"); }}'
 
 
+class EdgeSensor(QWidget):
+    """A small, faint hot-corner that sits at the drop-zone anchor. It exists
+    only to notice a file being dragged toward the corner: a drag entering it
+    fires `approached` (the controller then summons the ghost drop zone), and a
+    file dropped straight on it fires `dropped`."""
+
+    approached = Signal()
+    dropped = Signal(list)
+    SIZE = QSize(116, 116)
+
+    def __init__(self):
+        super().__init__()
+        self.anchor = "bottom-right"
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAcceptDrops(True)
+        self.setFixedSize(self.SIZE)
+        self.setStyleSheet(SENSOR_STYLE)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        self.nub = QFrame()
+        self.nub.setObjectName("sensorNub")
+        nl = QVBoxLayout(self.nub)
+        nl.setAlignment(Qt.AlignCenter)
+        nl.setSpacing(3)
+        icon = QLabel()
+        icon.setPixmap(icon_pixmap("hash", COLOR_ACCENT, 18))
+        icon.setAlignment(Qt.AlignCenter)
+        hint = QLabel("drop here")
+        hint.setObjectName("sensorHint")
+        hint.setAlignment(Qt.AlignCenter)
+        nl.addWidget(icon)
+        nl.addWidget(hint)
+        outer.addWidget(self.nub)
+        # Invisible at idle ("hidden until you drag to it") — the window still
+        # catches an approaching drag; the ghost drop zone is the visible cue.
+        self.nub.hide()
+
+    def place_at(self, anchor: str, screen: QRect):
+        self.anchor = anchor
+        self.setGeometry(dock_geometry(anchor, screen, self.SIZE, margin=2))
+
+    def _highlight(self, on: bool):
+        self.nub.setProperty("dragOver", on)
+        self.nub.style().unpolish(self.nub)
+        self.nub.style().polish(self.nub)
+
+    def dragEnterEvent(self, event):
+        if event.source() is None and event.mimeData().hasUrls():
+            self._highlight(True)
+            self.approached.emit()
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self._highlight(False)
+
+    def dropEvent(self, event):
+        self._highlight(False)
+        self.dropped.emit(collect_paths(event.mimeData().urls()))
+        event.acceptProposedAction()
+
+
+class SettingsWindow(QWidget):
+    """Standalone preferences window: configure the drop zone, menu-bar mode,
+    and start-at-login. Each control applies live through the AppController."""
+
+    def __init__(self, controller: "AppController"):
+        super().__init__()
+        self.controller = controller
+        self.setWindowTitle(f"{APP_NAME} — Settings")
+        self.setObjectName("centralWidget")
+        self.setMinimumWidth(420)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 22, 24, 22)
+        root.setSpacing(16)
+
+        title = QLabel("Settings")
+        title.setObjectName("titleLabel")
+        root.addWidget(title)
+
+        # Drop zone
+        root.addWidget(self._section("Drop zone"))
+        self.dropzone_check = QCheckBox("Enable the drop zone")
+        self.dropzone_check.setChecked(controller.is_dropzone_enabled())
+        self.dropzone_check.toggled.connect(controller.set_dropzone_enabled)
+        root.addWidget(self.dropzone_check)
+
+        pos_row = QHBoxLayout()
+        pos_label = QLabel("Position")
+        pos_label.setObjectName("subtitleLabel")
+        self.anchor_combo = QComboBox()
+        self.anchor_combo.setStyleSheet(COMBO_STYLE)
+        for key in DOCK_ANCHORS:
+            self.anchor_combo.addItem(DOCK_ANCHOR_LABELS[key], key)
+        idx = self.anchor_combo.findData(controller.current_anchor())
+        self.anchor_combo.setCurrentIndex(max(idx, 0))
+        self.anchor_combo.currentIndexChanged.connect(
+            lambda _: controller.set_anchor(self.anchor_combo.currentData())
+        )
+        pos_row.addWidget(pos_label)
+        pos_row.addStretch()
+        pos_row.addWidget(self.anchor_combo)
+        root.addLayout(pos_row)
+
+        self.auto_check = QCheckBox("Auto-convert files on drop")
+        self.auto_check.setChecked(controller.is_auto_convert())
+        self.auto_check.toggled.connect(controller.set_auto_convert)
+        controller.window.main_page.auto_convert.toggled.connect(self.auto_check.setChecked)
+        root.addWidget(self.auto_check)
+
+        # App behaviour
+        root.addWidget(self._section("App"))
+        self.menubar_check = QCheckBox("Run in the menu bar only (hide Dock icon)")
+        self.menubar_check.setChecked(controller.is_menu_bar_only())
+        self.menubar_check.toggled.connect(controller.set_menu_bar_only)
+        root.addWidget(self.menubar_check)
+
+        self.login_check = QCheckBox("Start tomd when I turn on my computer")
+        self.login_check.setChecked(controller.is_start_at_login())
+        self.login_check.toggled.connect(controller.set_start_at_login)
+        root.addWidget(self.login_check)
+
+        root.addStretch()
+        hint = QLabel("Changes apply immediately.")
+        hint.setObjectName("envLabel")
+        root.addWidget(hint)
+
+    def _section(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f'color: {COLOR_MUTED}; font-size: 11px; font-weight: 600; '
+            'letter-spacing: 0.08em; text-transform: uppercase; margin-top: 4px;'
+        )
+        return lbl
+
+
+class AppController:
+    """Owns the windows, tray, and drop zone, and applies persisted settings.
+    The single place that knows how the pieces fit together."""
+
+    def __init__(self, app):
+        self.app = app
+        self.settings = QSettings("thekiwidev", "tomd")
+        self.window = MainWindow()
+        self.window.controller = self        # lets the window/shortcut open Settings
+        self.dock = DockWindow(self.window.main_page)
+        self.settings_window = None
+
+        # Hidden hot-corner that summons the ghost drop zone on drag-approach.
+        self.sensor = EdgeSensor()
+        self.sensor.approached.connect(self._on_sensor_approach)
+        self.sensor.dropped.connect(self._on_sensor_drop)
+        self.dock.opened.connect(self._on_dock_opened)
+        self.dock.dismissed.connect(self._rearm_sensor)
+        # If the ghost is summoned but the drag never lands on it, give up.
+        self._orphan = QTimer(self.window, singleShot=True, interval=2000)
+        self._orphan.timeout.connect(self._on_orphan_timeout)
+
+        self.tray = self._build_tray()
+        app.aboutToQuit.connect(self.window.main_page.shutdown)
+        self._apply_startup()
+
+    # ---- persisted getters ----
+    def is_dropzone_enabled(self) -> bool:
+        return self.settings.value("dropzone_enabled", True, type=bool)
+
+    def current_anchor(self) -> str:
+        a = self.settings.value("dock_anchor", "bottom-right")
+        return a if a in DOCK_ANCHORS else "bottom-right"
+
+    def is_auto_convert(self) -> bool:
+        return self.window.main_page.auto_convert.isChecked()
+
+    def is_menu_bar_only(self) -> bool:
+        return self.settings.value("menu_bar_only", False, type=bool)
+
+    def is_start_at_login(self) -> bool:
+        return native.is_login_item_enabled()
+
+    # ---- setters (apply live) ----
+    def set_dropzone_enabled(self, enabled: bool):
+        self.settings.setValue("dropzone_enabled", enabled)
+        if enabled:
+            self._arm_sensor()
+        else:
+            self.sensor.hide()
+            self.dock.hide()
+
+    def set_anchor(self, anchor: str):
+        self.dock.set_anchor(anchor)
+        if self.sensor.isVisible():
+            self._arm_sensor()   # move the hot-corner to the new anchor too
+
+    def set_auto_convert(self, enabled: bool):
+        self.window.main_page.auto_convert.setChecked(enabled)
+
+    def set_menu_bar_only(self, enabled: bool):
+        self.settings.setValue("menu_bar_only", enabled)
+        native.set_dock_icon_visible(not enabled)
+
+    def set_start_at_login(self, enabled: bool):
+        native.set_login_item(enabled)
+
+    # ---- actions ----
+    def show_main_window(self):
+        self.window.show()
+        self.window.raise_()
+        self.window.activateWindow()
+
+    def show_drop_zone(self):
+        if not self.is_dropzone_enabled():
+            self.settings.setValue("dropzone_enabled", True)
+            if self.settings_window:
+                self.settings_window.dropzone_check.setChecked(True)
+        self._orphan.stop()
+        self.sensor.hide()
+        self.dock.pin()              # opened deliberately — persistent, not transient
+        self.dock.show()
+        self.dock.raise_()
+        self._pin_all_spaces(self.dock)
+
+    def _pin_all_spaces(self, win):
+        # Only touch native NSWindow APIs on the real macOS GUI platform; on the
+        # offscreen/test platform winId() isn't a valid NSView and would crash.
+        if QGuiApplication.platformName() == "cocoa":
+            native.show_on_all_spaces(win)
+
+    # ---- ghost drop zone (edge sensor → ghost → open) ----
+    def _arm_sensor(self):
+        if not self.is_dropzone_enabled():
+            return
+        screen = (self.window.screen() or QGuiApplication.primaryScreen())
+        self.sensor.place_at(self.current_anchor(), screen.availableGeometry())
+        self.sensor.show()
+        self.sensor.raise_()
+        self._pin_all_spaces(self.sensor)
+
+    def _rearm_sensor(self):
+        self.dock.hide()
+        self._orphan.stop()
+        self._arm_sensor()
+
+    def _on_sensor_approach(self):
+        # A drag reached the hot-corner: summon the ghost drop zone there.
+        self.sensor.hide()
+        self.dock.set_anchor(self.current_anchor())
+        self.dock.show_ghost()
+        self._pin_all_spaces(self.dock)
+        self._orphan.start()
+
+    def _on_sensor_drop(self, paths):
+        # Dropped straight on the hot-corner — open and convert immediately.
+        self.show_drop_zone()
+        if paths:
+            self.dock._accept_drop(paths)
+
+    def _on_dock_opened(self):
+        self._orphan.stop()
+
+    def _on_orphan_timeout(self):
+        # Ghost was summoned but the drag never engaged it — fade out, re-arm.
+        if self.dock._ghost:
+            self.dock._ghost = False
+            self.dock._transient = False
+            self._rearm_sensor()
+
+    def open_settings(self):
+        if self.settings_window is None:
+            self.settings_window = SettingsWindow(self)
+        self.settings_window.show()
+        self.settings_window.raise_()
+        self.settings_window.activateWindow()
+
+    # ---- startup ----
+    def _apply_startup(self):
+        native.set_dock_icon_visible(not self.is_menu_bar_only())
+        if not self.is_menu_bar_only():
+            self.window.show()
+        # The drop zone stays hidden; the hot-corner watches for an approaching
+        # drag and summons the ghost on demand.
+        if self.is_dropzone_enabled():
+            self._arm_sensor()
+
+    def _build_tray(self):
+        # White app-logo glyph (the # + return arrow) to match the desktop icon.
+        tray = QSystemTrayIcon(app_logo_icon("white", 22), parent=self.window)
+        tray.setToolTip(APP_NAME)
+        menu = QMenu()
+        menu.setStyleSheet(DOCK_MENU_STYLE)
+
+        window_act = QAction("Open window view", menu)
+        window_act.triggered.connect(self.show_main_window)
+        zone_act = QAction("Open drop zone", menu)
+        zone_act.triggered.connect(self.show_drop_zone)
+        settings_act = QAction("Settings…", menu)
+        settings_act.triggered.connect(self.open_settings)
+
+        auto_act = QAction("Auto-convert on drop", menu)
+        auto_act.setCheckable(True)
+        auto_act.setChecked(self.is_auto_convert())
+        auto_act.toggled.connect(self.set_auto_convert)
+        self.window.main_page.auto_convert.toggled.connect(auto_act.setChecked)
+
+        quit_act = QAction("Quit tomd", menu)
+        quit_act.triggered.connect(self.app.quit)
+
+        menu.addAction(window_act)
+        menu.addAction(zone_act)
+        menu.addSeparator()
+        menu.addAction(settings_act)
+        menu.addAction(auto_act)
+        menu.addSeparator()
+        menu.addAction(quit_act)
+        tray.setContextMenu(menu)
+        # Clicking the menu-bar icon just shows the menu (handled by Qt) — it
+        # must NOT auto-open the window view.
+        tray.show()
+        return tray
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyleSheet(STYLE + checkbox_indicator_rule())
-    window = MainWindow()
-    window.show()
+    # The app outlives its windows: closing the main window or hiding the drop
+    # zone leaves tomd running in the menu bar / tray.
+    app.setQuitOnLastWindowClosed(False)
+
+    controller = AppController(app)
+    app._controller = controller  # keep a strong reference
+
     sys.exit(app.exec())
 
 

@@ -1,11 +1,14 @@
 [project]
 name = "tomd"
-version = "0.1.5"
+version = "0.1.6"
 description = "Drag & drop GUI for Microsoft MarkItDown — convert anything to Markdown"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pyside6>=6.11.1",
+    # macOS-only: hide the Dock icon (menu-bar-only mode) and show the drop
+    # zone on every Space. Soft-imported in native.py; absence degrades cleanly.
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]
 
 [dependency-groups]

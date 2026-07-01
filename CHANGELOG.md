@@ -2,6 +2,18 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.7] — 2026-07-01
+
+### Fixed
+- Python 3.10+ detection no longer relies on a hardcoded version list — Python 3.14 and newer are now found correctly, including python.org's Framework-style installs that don't land a `python3` symlink on a GUI app's minimal PATH.
+- The "Install MarkItDown" button no longer stays disabled when no Python/uv is detected yet — install now bootstraps `uv` (which can fetch its own isolated Python) automatically, so setup works on a bare machine.
+- The drop zone's hot-corner sensor no longer creates a dead click zone: it now lets clicks pass through to whatever's underneath while idle, instead of silently swallowing them.
+
+### Added
+- Copy and Reveal buttons on the drop zone's file entries, matching the main window.
+- "Install Python via Homebrew instead" as an explicit alternative to the automatic uv bootstrap.
+- Landing page download buttons now link directly to the latest GitHub release build instead of the releases page, and detect Windows to serve the right build automatically.
+
 ## [0.1.6] — 2026-06-15
 
 ### Added
@@ -99,6 +111,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.7]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.7
 [0.1.6]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.6
 [0.1.5]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.5
 [0.1.4]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.4

@@ -1361,10 +1361,12 @@
           format you can feed an LLM.
         </p>
         <div class="hero-ctas">
+          <!-- Direct-download links: keep the asset filenames in sync with
+               .github/workflows/release.yml -->
           <a
             class="btn btn-primary"
-            href="https://github.com/thekiwidev/tomd/releases/latest"
-            target="_blank"
+            data-download-btn
+            href="https://github.com/thekiwidev/tomd/releases/latest/download/tomd.dmg"
             rel="noopener"
           >
             <svg class="icon" viewBox="0 0 24 24">
@@ -1372,7 +1374,7 @@
               <path d="m6 11 6 6 6-6" />
               <path d="M19 21H5" />
             </svg>
-            Download for macOS
+            <span data-download-label>Download for macOS</span>
           </a>
           <a
             class="btn btn-ghost"
@@ -2211,10 +2213,10 @@
               >GitHub</a
             >
             <a
-              href="https://github.com/thekiwidev/tomd/releases/latest"
-              target="_blank"
+              data-download-btn
+              href="https://github.com/thekiwidev/tomd/releases/latest/download/tomd.dmg"
               rel="noopener"
-              >Download</a
+              ><span data-download-label>Download</span></a
             >
             <a
               href="https://github.com/thekiwidev/tomd/issues"
@@ -2249,6 +2251,17 @@
         { threshold: 0.12 },
       );
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+      // Default download links point at the macOS build; swap to the Windows
+      // build for visitors whose user agent says Windows. Asset filenames
+      // must match .github/workflows/release.yml.
+      if (/Win/i.test(navigator.userAgent || navigator.platform || "")) {
+        document.querySelectorAll("[data-download-btn]").forEach((btn) => {
+          btn.href = btn.href.replace("tomd.dmg", "tomd.exe");
+          const label = btn.querySelector("[data-download-label]");
+          if (label) label.textContent = label.textContent.replace("macOS", "Windows");
+        });
+      }
     </script>
   </body>
 </html>

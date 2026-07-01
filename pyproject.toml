@@ -1,6 +1,6 @@
 [project]
 name = "tomd"
-version = "0.1.6"
+version = "0.1.7"
 description = "Drag & drop GUI for Microsoft MarkItDown — convert anything to Markdown"
 readme = "README.md"
 requires-python = ">=3.12"

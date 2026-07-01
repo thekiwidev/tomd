@@ -386,6 +386,18 @@ class SetupWorker(QThread):
         self.finished_setup.emit(ok, error)
 
 
+class HomebrewSetupWorker(QThread):
+    """Installs a system Python via Homebrew — the explicit alternative to
+    the automatic uv bootstrap in SetupWorker."""
+
+    log_line = Signal(str)
+    finished_setup = Signal(bool, str)
+
+    def run(self):
+        ok, error = backend.install_homebrew_python(self.log_line.emit)
+        self.finished_setup.emit(ok, error)
+
+
 class Toast(QLabel):
     """Transient notification pinned to the bottom of the window."""
 
@@ -823,11 +835,23 @@ class SetupPage(QWidget):
         self.install_button = QPushButton("Install MarkItDown")
         self.install_button.setObjectName("installButton")
         self.install_button.setIcon(themed_icon("terminal", "white", 13))
+        self.install_button.setToolTip(
+            "Installs uv (if needed) and markitdown automatically — no Python required beforehand."
+        )
         self.install_button.clicked.connect(self.start_install)
         button_row.addWidget(self.recheck_button)
         button_row.addStretch()
         button_row.addWidget(self.install_button)
         layout.addLayout(button_row)
+
+        # Secondary, explicit path for anyone who'd rather have a real
+        # system-wide Python via Homebrew instead of tomd's uv-managed one.
+        homebrew_row = QHBoxLayout()
+        self.homebrew_button = QPushButton("Install Python via Homebrew instead")
+        self.homebrew_button.clicked.connect(self.start_homebrew_install)
+        homebrew_row.addStretch()
+        homebrew_row.addWidget(self.homebrew_button)
+        layout.addLayout(homebrew_row)
 
         self.update_checks(report)
 
@@ -846,8 +870,9 @@ class SetupPage(QWidget):
         mark("python", bool(report["python"]), python_text)
         mark("uv", bool(report["uv"]), f"uv — {report['uv'] or 'not found (optional)'}")
         mark("markitdown", bool(report["markitdown"]), f"markitdown CLI — {report['markitdown'] or 'not installed'}")
-        # uv can bootstrap its own Python, so either one unblocks the install.
-        self.install_button.setEnabled(bool(report["python"] or report["uv"]) and not report["markitdown"])
+        # Install can now bootstrap uv itself, so it's actionable even when
+        # nothing has been detected yet — only a completed install disables it.
+        self.install_button.setEnabled(not report["markitdown"])
 
     def recheck(self):
         report = backend.environment_report()
@@ -857,11 +882,22 @@ class SetupPage(QWidget):
 
     def start_install(self):
         self.install_button.setEnabled(False)
+        self.homebrew_button.setEnabled(False)
         self.recheck_button.setEnabled(False)
         self.log_view.clear()
         self.worker = SetupWorker(self)
         self.worker.log_line.connect(self.append_log)
         self.worker.finished_setup.connect(self.on_finished)
+        self.worker.start()
+
+    def start_homebrew_install(self):
+        self.install_button.setEnabled(False)
+        self.homebrew_button.setEnabled(False)
+        self.recheck_button.setEnabled(False)
+        self.log_view.clear()
+        self.worker = HomebrewSetupWorker(self)
+        self.worker.log_line.connect(self.append_log)
+        self.worker.finished_setup.connect(self.on_homebrew_finished)
         self.worker.start()
 
     def append_log(self, line: str):
@@ -870,12 +906,30 @@ class SetupPage(QWidget):
 
     def on_finished(self, ok: bool, error: str):
         self.recheck_button.setEnabled(True)
+        self.homebrew_button.setEnabled(True)
         if ok:
             self.append_log("✓ Setup complete.")
             self.setup_complete.emit(str(backend.venv_executable("markitdown")))
         else:
             self.append_log(f"Setup failed: {error}")
             self.install_button.setEnabled(True)
+
+    def on_homebrew_finished(self, ok: bool, error: str):
+        self.recheck_button.setEnabled(True)
+        self.install_button.setEnabled(True)
+        self.homebrew_button.setEnabled(True)
+        if ok:
+            self.append_log("✓ Python installed via Homebrew.")
+            self.recheck()
+        elif error == "HOMEBREW_MISSING":
+            self.append_log(
+                "Homebrew isn't installed. Paste this into Terminal, then click "
+                "Re-check:\n"
+                '/bin/bash -c "$(curl -fsSL '
+                "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+            )
+        else:
+            self.append_log(f"Homebrew install failed: {error}")
 
 
 class MainPage(QWidget):
@@ -1421,10 +1475,26 @@ class DockEntry(QFrame):
         self.name_label.setMinimumWidth(self._NAME_MIN_WIDTH)
         layout.addWidget(self.name_label, stretch=1)
 
+        # Icon-only action chips — same order as the main window's FileRow
+        # (copy, drag, reveal) so the two views feel like one component.
+        self.copy_button = ActionChip("copy", "Copy MD")
+        self.copy_button.setToolTip("Copy the markdown content to the clipboard")
+        self.copy_button.set_text_visible(False)
+        self.copy_button.clicked.connect(self._copy_markdown)
+        self.copy_button.hide()
+        layout.addWidget(self.copy_button)
+
         self.drag_chip = DragChip()
         self.drag_chip.set_text_visible(False)   # icon-only — the dock is narrow
         self.drag_chip.hide()
         layout.addWidget(self.drag_chip)
+
+        self.reveal_button = ActionChip("folder", "Reveal")
+        self.reveal_button.setToolTip("Show the .md file in Finder")
+        self.reveal_button.set_text_visible(False)
+        self.reveal_button.clicked.connect(self._reveal)
+        self.reveal_button.hide()
+        layout.addWidget(self.reveal_button)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1433,6 +1503,17 @@ class DockEntry(QFrame):
             fm.elidedText(self._full_name, Qt.ElideMiddle, max(self.name_label.width(), 0))
         )
 
+    def _copy_markdown(self):
+        if not self.row:
+            return
+        self.row.copy_markdown()
+        self.copy_button.set_content("check", "Copied")
+        QTimer.singleShot(1500, lambda: self.copy_button.set_content("copy", "Copy MD"))
+
+    def _reveal(self):
+        if self.row:
+            self.row.reveal()
+
     def set_running(self):
         self.status_label.setPixmap(icon_pixmap("loader", COLOR_AMBER, 11))
 
@@ -1440,6 +1521,8 @@ class DockEntry(QFrame):
         self.status_label.setPixmap(icon_pixmap("check", COLOR_GREEN, 11))
         self.drag_chip.md_path = md_path
         self.drag_chip.show()
+        self.copy_button.show()
+        self.reveal_button.show()
 
     def set_failed(self, error: str):
         self.status_label.setPixmap(icon_pixmap("x", COLOR_RED, 11))
@@ -1752,6 +1835,10 @@ class EdgeSensor(QWidget):
         self.anchor = "bottom-right"
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        # Idle, this window is invisible but still on top of everything — without
+        # this it swallows every click in its corner, turning whatever is
+        # underneath (another app, or tomd's own window) into dead space.
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAcceptDrops(True)
         self.setFixedSize(self.SIZE)
         self.setStyleSheet(SENSOR_STYLE)

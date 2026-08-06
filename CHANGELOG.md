@@ -2,6 +2,16 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.9] — 2026-08-06
+
+### Fixed
+- Conversion failures now explain themselves. A YouTube fetch that YouTube refuses used to surface as `HTTPError: 429 Client Error: Too Many Requests for url: https://www.google.com/sorry/index?continue=…` — two hundred characters of Google challenge URL, truncated to fit a one-line row, saying nothing a person could act on. It now reads "YouTube is refusing requests from this network — it returns a bot check instead of the video page. Turn off any VPN, or try another network."
+- The same treatment for the other failures worth naming: captions turned off, no transcript in a supported language, video unavailable, age-restricted, and missing MarkItDown dependencies (which now points at Settings → Repair). Anything unrecognised still shows the underlying exception.
+
+### Known issues
+- YouTube blocks transcript fetches at the IP level from some networks — VPNs, shared/CGNAT addresses, and datacenter ranges especially. When that happens every video fails identically regardless of the app, because YouTube serves a bot check instead of the page. The block is usually temporary; a different network (a phone hotspot) is the reliable workaround.
+- MarkItDown sends no `User-Agent` when fetching URLs, so sites with a user-agent policy — Wikipedia among them — reject it with HTTP 403. This is upstream behaviour and does not affect local files or YouTube links, the only sources tomd currently accepts.
+
 ## [0.1.8] — 2026-08-06
 
 ### Added
@@ -126,6 +136,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.9]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.9
 [0.1.8]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.8
 [0.1.7]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.7
 [0.1.6]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.6

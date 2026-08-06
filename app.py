@@ -312,34 +312,81 @@ def collect_paths(urls):
     return files
 
 
-_YOUTUBE_HOSTS = {
-    "youtube.com", "www.youtube.com", "m.youtube.com",
-    "music.youtube.com", "youtu.be", "www.youtu.be",
+# The two shapes a person can actually end up with: the address bar gives
+# youtube.com/watch?v=…, YouTube's own Share button gives youtu.be/… . Both
+# name a single video, which is all a transcript can come from.
+_WATCH_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com"}
+_SHORT_HOSTS = {"youtu.be", "www.youtu.be"}
+
+# YouTube video ids have been 11 characters of this alphabet for the life of
+# the API. Checking it here turns a typo into a clear message instead of a
+# conversion that fetches a 404 page and calls it a document.
+_YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+_COPY_HINT = "Open the video on YouTube and copy the link from the address bar."
+
+# Paths that are recognisably YouTube but aren't a plain video page. Worth
+# naming individually — "unsupported" explains far more than "invalid".
+_UNSUPPORTED_PATHS = {
+    "shorts": "Shorts links aren't supported yet.",
+    "live": "Live stream links aren't supported yet.",
+    "embed": "Embed links aren't supported.",
+    "playlist": "That's a playlist, not a single video.",
+    "channel": "That's a channel, not a video.",
+    "user": "That's a channel, not a video.",
+    "c": "That's a channel, not a video.",
+    "results": "That's a search results page, not a video.",
+    "feed": "That's a YouTube feed, not a video.",
 }
 
 
-def youtube_video_id(url: str):
-    """The video id in a YouTube URL, or None if it isn't one.
+def parse_youtube_url(url: str) -> tuple:
+    """(video_id, error). Exactly one is set; both are None for empty input.
 
-    Doubles as the validity check — every accepted shape has an id, so
-    "recognised" and "has an id" are the same question.
+    youtu.be links — what YouTube's Share button produces — carry the id as the
+    path rather than a `v` parameter, so they're converted rather than refused.
     """
+    url = (url or "").strip()
+    if not url:
+        return None, None
     try:
-        parsed = urlparse(url.strip())
+        parsed = urlparse(url)
     except ValueError:
-        return None
-    if parsed.scheme not in ("http", "https") or parsed.netloc.lower() not in _YOUTUBE_HOSTS:
-        return None
+        return None, f"That isn't a valid link. {_COPY_HINT}"
+
+    if parsed.scheme not in ("http", "https"):
+        if not parsed.scheme and "youtu" in url:
+            return None, "Include the full link, starting with https://"
+        return None, f"That isn't a YouTube link. {_COPY_HINT}"
+
+    host = parsed.netloc.lower().split(":")[0]
     parts = [p for p in parsed.path.split("/") if p]
-    if parsed.netloc.lower().endswith("youtu.be"):
-        return parts[0] if parts else None
-    if parsed.path == "/watch":
+
+    if host in _SHORT_HOSTS:
+        candidate = parts[0] if parts else ""
+    elif host in _WATCH_HOSTS:
+        if parts and parts[0] in _UNSUPPORTED_PATHS:
+            return None, f"{_UNSUPPORTED_PATHS[parts[0]]} {_COPY_HINT}"
+        if parsed.path.rstrip("/") not in ("/watch", ""):
+            return None, f"That isn't a video link. {_COPY_HINT}"
         values = parse_qs(parsed.query).get("v")
-        return values[0] if values else None
-    # /shorts/<id>, /live/<id>, /embed/<id>
-    if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed", "v"):
-        return parts[1]
-    return None
+        candidate = values[0] if values else ""
+    elif host.endswith(".youtube.com") or host == "youtube.com":
+        # music.youtube.com, studio.youtube.com, and friends.
+        return None, f"That YouTube address isn't a video page. {_COPY_HINT}"
+    else:
+        return None, f"That isn't a YouTube link. {_COPY_HINT}"
+
+    if not candidate:
+        return None, f"That link doesn't name a video. {_COPY_HINT}"
+    if not _YOUTUBE_ID.match(candidate):
+        return None, f"\"{candidate[:24]}\" isn't a valid video id. {_COPY_HINT}"
+    return candidate, None
+
+
+def youtube_video_id(url: str):
+    """The video id in a supported YouTube URL, or None."""
+    return parse_youtube_url(url)[0]
 
 
 def _slug(text: str) -> str:
@@ -2135,6 +2182,15 @@ class YouTubeDialog(QDialog):
         self.url_edit.textChanged.connect(self._update_preview)
         root.addWidget(self.url_edit)
 
+        self.url_hint = QLabel(
+            "From your browser's address bar (youtube.com/watch?v=…) or "
+            "YouTube's Share button (youtu.be/…). Single videos only — "
+            "not Shorts, playlists or channels."
+        )
+        self.url_hint.setObjectName("fieldHint")
+        self.url_hint.setWordWrap(True)
+        root.addWidget(self.url_hint)
+
         root.addWidget(self._field_label("Title"))
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("Used as the file name — optional")
@@ -2203,22 +2259,20 @@ class YouTubeDialog(QDialog):
         self.preview.style().polish(self.preview)
 
     def _update_preview(self):
-        url = self.url_edit.text().strip()
-        video_id = youtube_video_id(url)
-        if not url:
-            self._set_hint("")
-        elif not video_id:
-            self._set_hint("That doesn't look like a YouTube link.", "error")
-        else:
+        video_id, error = parse_youtube_url(self.url_edit.text())
+        if error:
+            self._set_hint(error, "error")
+        elif video_id:
             slug = slugify(self.title_edit.text(), video_id)
             self._set_hint(f"→ {slug}.md")
+        else:
+            self._set_hint("")
         self.add_button.setEnabled(bool(video_id))
 
     def _accept(self):
-        url = self.url_edit.text().strip()
-        video_id = youtube_video_id(url)
+        video_id, error = parse_youtube_url(self.url_edit.text())
         if not video_id:
-            self._set_hint("That doesn't look like a YouTube link.", "error")
+            self._set_hint(error or f"Enter a YouTube video link. {_COPY_HINT}", "error")
             return
         if not self.folder.is_dir():
             self._set_hint(f"{self.folder} is not a folder — pick another.", "error")

@@ -2,6 +2,14 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.11] — 2026-08-06
+
+### Changed
+- **Share links are converted, not refused.** YouTube's own Share button gives you `youtu.be/_0A2BnRYVCo` while the address bar gives `youtube.com/watch?v=_0A2BnRYVCo` — the same video written two ways. Both are now accepted and rewritten to the form MarkItDown understands, so it no longer matters which one you paste.
+- **Link validation says what's actually wrong.** Instead of one catch-all "that doesn't look like a YouTube link", each case names itself: Shorts and live streams aren't supported yet, playlists and channels aren't single videos, a mistyped id is reported as a bad id, and a link missing its `https://` says so. Every message ends with where to get a working link.
+- Shorts, live, embed and playlist links are now rejected outright. They were previously accepted and passed to MarkItDown, which doesn't recognise them — the conversion appeared to succeed and produced a page of YouTube's footer links.
+- The link field carries a standing note of what it accepts, so the rules are visible before you paste rather than after.
+
 ## [0.1.10] — 2026-08-06
 
 ### Fixed
@@ -143,6 +151,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.11]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.11
 [0.1.10]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.10
 [0.1.9]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.9
 [0.1.8]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.8

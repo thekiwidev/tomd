@@ -8,9 +8,11 @@ requirements and offers to install them into a private environment.
 """
 
 import queue
+import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from PySide6.QtCore import (
     QByteArray,
@@ -41,10 +43,12 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QPlainTextEdit,
@@ -150,6 +154,18 @@ QProgressBar::chunk {{ background: #6c5ce7; border-radius: 3px; }}
     border-radius: 10px; font-family: "JetBrains Mono", Menlo, Consolas, monospace; font-size: 11px;
     padding: 6px;
 }}
+QLineEdit {{
+    background: #1e1f26; color: {COLOR_TEXT}; border: 1px solid #34363f;
+    border-radius: 8px; padding: 7px 10px; font-size: 13px;
+    selection-background-color: {COLOR_ACCENT};
+}}
+QLineEdit:focus {{ border-color: {COLOR_ACCENT}; }}
+QLineEdit:disabled {{ color: #565963; background: #1a1b20; }}
+#fieldLabel {{ color: #b6b9c2; font-size: 12px; font-weight: 600; }}
+#fieldHint {{ font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    color: {COLOR_MUTED}; font-size: 11px; }}
+#fieldHint[kind="error"] {{ color: {COLOR_RED}; }}
+#fieldHint[kind="ok"] {{ color: {COLOR_GREEN}; }}
 QScrollBar:vertical {{ background: transparent; width: 8px; }}
 QScrollBar::handle:vertical {{ background: #34363f; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
@@ -202,6 +218,15 @@ ICON_PATHS = {
     "settings": (
         '<path d="M20 7h-9"/><path d="M14 17H5"/>'
         '<circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>'
+    ),
+    "wrench": (
+        '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1'
+        '-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
+    ),
+    "youtube": (
+        '<path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0'
+        'A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0'
+        'A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/>'
     ),
 }
 
@@ -285,6 +310,66 @@ def collect_paths(urls):
                 if child.is_file() and child.suffix.lower() in SUPPORTED_EXTENSIONS:
                     files.append(child)
     return files
+
+
+_YOUTUBE_HOSTS = {
+    "youtube.com", "www.youtube.com", "m.youtube.com",
+    "music.youtube.com", "youtu.be", "www.youtu.be",
+}
+
+
+def youtube_video_id(url: str):
+    """The video id in a YouTube URL, or None if it isn't one.
+
+    Doubles as the validity check — every accepted shape has an id, so
+    "recognised" and "has an id" are the same question.
+    """
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or parsed.netloc.lower() not in _YOUTUBE_HOSTS:
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if parsed.netloc.lower().endswith("youtu.be"):
+        return parts[0] if parts else None
+    if parsed.path == "/watch":
+        values = parse_qs(parsed.query).get("v")
+        return values[0] if values else None
+    # /shorts/<id>, /live/<id>, /embed/<id>
+    if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed", "v"):
+        return parts[1]
+    return None
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:80].strip("-")
+
+
+def slugify(text: str, fallback: str = "transcript") -> str:
+    """'My Video: Part 2!' -> 'my-video-part-2'.
+
+    Falls back when a title slugifies to nothing (all punctuation, or
+    non-Latin script) — the video id makes a usable filename where the title
+    doesn't.
+    """
+    return _slug(text) or _slug(fallback) or "transcript"
+
+
+def unique_output(directory: Path, slug: str, taken=()) -> Path:
+    """<slug>.md in `directory`, suffixed -2, -3… rather than overwriting.
+
+    `taken` covers paths that are spoken for but not yet on disk: two different
+    videos can share a title, and queued rows haven't written their file yet,
+    so checking the filesystem alone would hand both the same name.
+    """
+    taken = set(taken)
+    candidate = directory / f"{slug}.md"
+    counter = 2
+    while candidate.exists() or candidate in taken:
+        candidate = directory / f"{slug}-{counter}.md"
+        counter += 1
+    return candidate
 
 
 def reveal_in_file_manager(path: Path):
@@ -371,7 +456,9 @@ class QueueWorker(QThread):
             if row is None:
                 break
             self.job_started.emit(row)
-            ok, detail = backend.convert_file(self.markitdown_exe, row.source)
+            ok, detail = backend.convert_file(
+                self.markitdown_exe, row.source_arg, row.output_for()
+            )
             (self.job_done if ok else self.job_failed).emit(row, detail)
 
 
@@ -396,6 +483,37 @@ class HomebrewSetupWorker(QThread):
     def run(self):
         ok, error = backend.install_homebrew_python(self.log_line.emit)
         self.finished_setup.emit(ok, error)
+
+
+class RepairWorker(QThread):
+    """Purges tomd's markitdown environment and installs it again."""
+
+    log_line = Signal(str)
+    finished_setup = Signal(bool, str)
+
+    def __init__(self, deep_targets=(), parent=None):
+        super().__init__(parent)
+        self._deep_targets = list(deep_targets)
+
+    def run(self):
+        ok, error = backend.repair_markitdown(self.log_line.emit, self._deep_targets)
+        self.finished_setup.emit(ok, error)
+
+
+class EnvProbeWorker(QThread):
+    """Gathers the full environment picture off the UI thread.
+
+    Checking that markitdown can actually read PDFs means starting an
+    interpreter and importing its heavier dependencies, which takes a couple of
+    seconds on a cold cache — far too long to sit on the main thread at startup
+    or when the settings window opens.
+    """
+
+    probed = Signal(dict, list)
+
+    def run(self):
+        report = backend.environment_report(deep=True)
+        self.probed.emit(report, backend.find_foreign_markitdowns())
 
 
 class Toast(QLabel):
@@ -567,10 +685,16 @@ class FileRow(QFrame):
         ERROR: ("x", COLOR_RED),
     }
 
-    def __init__(self, source: Path, parent=None):
+    def __init__(self, source, display_name=None, output_path=None, parent=None):
+        """`source` is a local Path or a URL string. `output_path` is only
+        needed for sources with no directory of their own to sit next to (a
+        YouTube link); local files keep deriving `<name>.md` beside themselves.
+        """
         super().__init__(parent)
         self.setObjectName("fileRow")
         self.source = source
+        self.source_arg = str(source)       # what markitdown receives
+        self.output_path = output_path      # None → derive from source
         self.md_path = None
         self.state = PENDING
         self.selected = False
@@ -594,11 +718,12 @@ class FileRow(QFrame):
 
         text_col = QVBoxLayout()
         text_col.setSpacing(4)
-        self._full_name = source.name
+        self.display_name = display_name or Path(source).name
+        self._full_name = self.display_name
         self._full_sub = ""
-        self.name_label = QLabel(source.name)
+        self.name_label = QLabel(self._full_name)
         self.name_label.setObjectName("fileName")
-        self.name_label.setToolTip(source.name)
+        self.name_label.setToolTip(self.source_arg)
         # The name column flexes with the window: it takes the leftover space
         # (so it's long on a wide window) but can shrink all the way down to
         # _NAME_MIN_WIDTH, middle-elided in _elide_labels(), so the action chips
@@ -649,6 +774,13 @@ class FileRow(QFrame):
             widget.hide()
 
         self._action_widgets = [self.copy_button, self.drag_chip, self.reveal_button]
+
+    def output_for(self) -> Path:
+        """Where this row's markdown is written. Explicit for sources that have
+        no directory of their own (URLs); beside the file otherwise."""
+        if self.output_path is not None:
+            return self.output_path
+        return Path(self.source).with_suffix(".md")
 
     def _show_more_menu(self):
         menu = QMenu(self)
@@ -788,6 +920,7 @@ class SetupPage(QWidget):
         super().__init__(parent)
         self.setObjectName("setupPage")
         self.worker = None
+        self._needs_repair = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 20)
@@ -869,15 +1002,32 @@ class SetupPage(QWidget):
             python_text += " — not found"
         mark("python", bool(report["python"]), python_text)
         mark("uv", bool(report["uv"]), f"uv — {report['uv'] or 'not found (optional)'}")
-        mark("markitdown", bool(report["markitdown"]), f"markitdown CLI — {report['markitdown'] or 'not installed'}")
-        # Install can now bootstrap uv itself, so it's actionable even when
-        # nothing has been detected yet — only a completed install disables it.
-        self.install_button.setEnabled(not report["markitdown"])
+
+        health = report.get("health")
+        missing = (health or {}).get("missing_features")
+        healthy = bool(health and health["ok"])
+        if report["markitdown"] and missing:
+            detail = f"{report['markitdown']} — missing formats: {', '.join(missing)}"
+        else:
+            detail = report["markitdown"] or "not installed"
+        mark("markitdown", healthy if health else bool(report["markitdown"]),
+             f"markitdown CLI — {detail}")
+
+        # Install can bootstrap uv itself, so it's actionable even when nothing
+        # has been detected yet. A markitdown that exists but can't convert
+        # anything must stay actionable too — otherwise the button greys out in
+        # exactly the situation the user needs it, and the page is a dead end.
+        self._needs_repair = bool(report["markitdown"]) and health is not None and not healthy
+        self.install_button.setEnabled(not report["markitdown"] or self._needs_repair)
+        self.install_button.setText(
+            "Repair MarkItDown" if self._needs_repair else "Install MarkItDown"
+        )
 
     def recheck(self):
+        backend.invalidate_health_cache()
         report = backend.environment_report()
         self.update_checks(report)
-        if report["markitdown"]:
+        if report["markitdown"] and not self._needs_repair:
             self.setup_complete.emit(report["markitdown"])
 
     def start_install(self):
@@ -885,7 +1035,7 @@ class SetupPage(QWidget):
         self.homebrew_button.setEnabled(False)
         self.recheck_button.setEnabled(False)
         self.log_view.clear()
-        self.worker = SetupWorker(self)
+        self.worker = RepairWorker(parent=self) if self._needs_repair else SetupWorker(self)
         self.worker.log_line.connect(self.append_log)
         self.worker.finished_setup.connect(self.on_finished)
         self.worker.start()
@@ -1035,6 +1185,10 @@ class MainPage(QWidget):
         self.browse_button = QPushButton("Add Files…")
         self.browse_button.setIcon(themed_icon("plus", "#d6d8e0", 11))
         self.browse_button.clicked.connect(self.browse_files)
+        self.youtube_button = QPushButton("YouTube…")
+        self.youtube_button.setIcon(themed_icon("youtube", "#e07a7f", 12))
+        self.youtube_button.setToolTip("Fetch a YouTube video's transcript")
+        self.youtube_button.clicked.connect(self.add_youtube)
         self.clear_button = QPushButton("Clear")
         self.clear_button.setIcon(themed_icon("trash", "#d6d8e0", 11))
         self.clear_button.clicked.connect(self.clear_rows)
@@ -1057,6 +1211,7 @@ class MainPage(QWidget):
         self.run_button.setEnabled(False)
         self.run_button.clicked.connect(self.on_run_clicked)
         bottom.addWidget(self.browse_button)
+        bottom.addWidget(self.youtube_button)
         bottom.addWidget(self.clear_button)
         bottom.addWidget(self.remove_selected_button)
         bottom.addWidget(self.reveal_selected_button)
@@ -1071,6 +1226,7 @@ class MainPage(QWidget):
         self._run_label = "Run"
         self._labeled_buttons = [
             (self.browse_button, "Add Files…"),
+            (self.youtube_button, "YouTube…"),
             (self.clear_button, "Clear"),
             (self.remove_selected_button, "Remove Selected"),
             (self.reveal_selected_button, "Reveal Selected"),
@@ -1109,6 +1265,16 @@ class MainPage(QWidget):
             controller.open_settings()
 
     # ---- environment ----
+    def set_youtube_available(self, available: bool):
+        """Transcripts need markitdown's youtube extra; without it the CLI
+        fails only once the job runs, which reads as a broken button."""
+        self.youtube_button.setEnabled(available)
+        self.youtube_button.setToolTip(
+            "Fetch a YouTube video's transcript" if available else
+            "MarkItDown is missing its YouTube support — "
+            "open Settings and run Repair MarkItDown."
+        )
+
     def set_markitdown(self, exe: str):
         self.markitdown_exe = exe
         self.env_label.setText(f"using {exe}")
@@ -1132,21 +1298,41 @@ class MainPage(QWidget):
         self.add_files([Path(p) for p in paths])
 
     def add_files(self, paths) -> list:
-        existing = {row.source for row in self.rows}
+        existing = {row.source_arg for row in self.rows}
         new_rows = []
         for path in paths:
-            if path in existing:
+            if str(path) in existing:
                 continue
-            existing.add(path)
-            row = FileRow(path)
-            row.selection_changed.connect(self.on_row_selection_changed)
-            self.rows.append(row)
-            new_rows.append(row)
-            self.list_layout.insertWidget(self.list_layout.count() - 1, row)
+            existing.add(str(path))
+            new_rows.append(self._append_row(FileRow(path)))
         if new_rows and self.auto_convert.isChecked() and self.markitdown_exe:
             self.enqueue_rows(new_rows)
         self.refresh_chrome()
         return new_rows
+
+    def add_youtube(self):
+        dialog = YouTubeDialog(self.window)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        if any(row.source_arg == dialog.result_url for row in self.rows):
+            self.window.toast.show_message("That video is already in the list")
+            return
+        output = unique_output(
+            dialog.result_folder, dialog.result_slug,
+            taken={r.output_path for r in self.rows if r.output_path},
+        )
+        row = self._append_row(FileRow(
+            dialog.result_url, display_name=output.name, output_path=output,
+        ))
+        if self.auto_convert.isChecked() and self.markitdown_exe:
+            self.enqueue_rows([row])
+        self.refresh_chrome()
+
+    def _append_row(self, row):
+        row.selection_changed.connect(self.on_row_selection_changed)
+        self.rows.append(row)
+        self.list_layout.insertWidget(self.list_layout.count() - 1, row)
+        return row
 
     def rows_for(self, paths) -> list:
         """Existing rows whose source is in `paths` — lets the dock reflect a
@@ -1252,7 +1438,9 @@ class MainPage(QWidget):
 
     def on_job_started(self, row):
         row.set_state(RUNNING)
-        self.count_label.setText(f"Converting {self.batch_done + 1}/{self.batch_total} — {row.source.name}")
+        self.count_label.setText(
+            f"Converting {self.batch_done + 1}/{self.batch_total} — {row.display_name}"
+        )
 
     def on_job_done(self, row, output):
         row.set_state(DONE, output)
@@ -1262,7 +1450,7 @@ class MainPage(QWidget):
     def on_job_failed(self, row, error):
         row.set_state(ERROR, error)
         self.row_failed.emit(row, error)
-        self.window.toast.show_message(f"Could not convert {row.source.name}", kind="error")
+        self.window.toast.show_message(f"Could not convert {row.display_name}", kind="error")
         self._job_finished()
 
     def _job_finished(self):
@@ -1306,7 +1494,10 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         wrapper.addWidget(self.pages)
 
-        report = backend.environment_report()
+        # Shallow: the deep health probe runs on a thread once the window is up
+        # (AppController.refresh_environment), so startup isn't blocked on
+        # importing markitdown's dependencies.
+        report = backend.environment_report(deep=False)
         self.main_page = MainPage(self)
         self.setup_page = SetupPage(report)
         self.setup_page.setup_complete.connect(self.on_setup_complete)
@@ -1451,12 +1642,12 @@ class DockEntry(QFrame):
 
     _NAME_MIN_WIDTH = 70
 
-    def __init__(self, source: Path, parent=None):
+    def __init__(self, source, display_name=None, parent=None):
         super().__init__(parent)
         self.setObjectName("dockEntry")
         self.source = source
         self.row = None              # the shared MainPage FileRow this mirrors
-        self._full_name = source.name
+        self._full_name = display_name or Path(source).name
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -1749,11 +1940,11 @@ class DockWindow(QWidget):
         self._refresh_chrome()
 
     def _track(self, row):
-        if row.source in self._entries:
+        if row.source_arg in self._entries:
             return
-        entry = DockEntry(row.source)
+        entry = DockEntry(row.source, row.display_name)
         entry.row = row
-        self._entries[row.source] = entry
+        self._entries[row.source_arg] = entry
         self.list_layout.insertWidget(self.list_layout.count() - 1, entry)
         if row.state == RUNNING:
             entry.set_running()
@@ -1763,13 +1954,13 @@ class DockWindow(QWidget):
             entry.set_failed("Conversion failed")
 
     def _on_converted(self, row, md_path):
-        entry = self._entries.get(row.source)
+        entry = self._entries.get(row.source_arg)
         if entry:
             entry.set_done(Path(md_path))
             self._refresh_chrome()
 
     def _on_failed(self, row, error):
-        entry = self._entries.get(row.source)
+        entry = self._entries.get(row.source_arg)
         if entry:
             entry.set_failed(error)
             self._refresh_chrome()
@@ -1887,6 +2078,142 @@ class EdgeSensor(QWidget):
         event.acceptProposedAction()
 
 
+class YouTubeDialog(QDialog):
+    """Ask for a YouTube link and the name its transcript should be saved under.
+
+    MarkItDown already fetches YouTube transcripts — its CLI takes a URL in the
+    same slot as a filename. What it can't do is decide where the result goes,
+    because a link has no folder of its own, so the destination is asked for
+    once and remembered.
+    """
+
+    SETTINGS_KEY = "youtube_output_dir"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("centralWidget")
+        self.setWindowTitle("Add a YouTube video")
+        self.setMinimumWidth(460)
+        self.settings = QSettings("thekiwidev", "tomd")
+        self.result_url = None
+        self.result_slug = None
+        self.result_folder = None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 22, 24, 20)
+        root.setSpacing(14)
+
+        title = QLabel("Add a YouTube video")
+        title.setObjectName("titleLabel")
+        root.addWidget(title)
+        subtitle = QLabel("tomd fetches the video's transcript and saves it as Markdown.")
+        subtitle.setObjectName("subtitleLabel")
+        subtitle.setWordWrap(True)
+        root.addWidget(subtitle)
+
+        root.addWidget(self._field_label("Video link"))
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…")
+        self.url_edit.textChanged.connect(self._update_preview)
+        root.addWidget(self.url_edit)
+
+        root.addWidget(self._field_label("Title"))
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("Used as the file name — optional")
+        self.title_edit.textChanged.connect(self._update_preview)
+        root.addWidget(self.title_edit)
+
+        self.preview = QLabel()
+        self.preview.setObjectName("fieldHint")
+        self.preview.setWordWrap(True)
+        root.addWidget(self.preview)
+
+        root.addWidget(self._field_label("Save to"))
+        folder_row = QHBoxLayout()
+        self.folder_label = QLabel()
+        self.folder_label.setObjectName("fieldHint")
+        self.folder_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        change_button = QPushButton("Change…")
+        change_button.setIcon(themed_icon("folder", "#d6d8e0", 11))
+        change_button.clicked.connect(self.choose_folder)
+        folder_row.addWidget(self.folder_label, stretch=1)
+        folder_row.addWidget(change_button)
+        root.addLayout(folder_row)
+
+        root.addStretch()
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        self.add_button = QPushButton("Add")
+        self.add_button.setObjectName("runButton")
+        self.add_button.setIcon(themed_icon("plus", "white", 11))
+        self.add_button.setDefault(True)
+        self.add_button.clicked.connect(self._accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(self.add_button)
+        root.addLayout(buttons)
+
+        self._set_folder(Path(self.settings.value(self.SETTINGS_KEY, "") or
+                              Path.home() / "Downloads"))
+        self._update_preview()
+
+    def _field_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    # ---- destination ----
+    def _set_folder(self, folder: Path):
+        self.folder = folder
+        self.folder_label.setText(str(folder))
+        self.folder_label.setToolTip(str(folder))
+
+    def choose_folder(self):
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Where should transcripts be saved?", str(self.folder)
+        )
+        if chosen:
+            self._set_folder(Path(chosen))
+            self.settings.setValue(self.SETTINGS_KEY, chosen)
+
+    # ---- validation & preview ----
+    def _set_hint(self, text: str, kind: str = ""):
+        self.preview.setText(text)
+        self.preview.setProperty("kind", kind)
+        self.preview.style().unpolish(self.preview)
+        self.preview.style().polish(self.preview)
+
+    def _update_preview(self):
+        url = self.url_edit.text().strip()
+        video_id = youtube_video_id(url)
+        if not url:
+            self._set_hint("")
+        elif not video_id:
+            self._set_hint("That doesn't look like a YouTube link.", "error")
+        else:
+            slug = slugify(self.title_edit.text(), video_id)
+            self._set_hint(f"→ {slug}.md")
+        self.add_button.setEnabled(bool(video_id))
+
+    def _accept(self):
+        url = self.url_edit.text().strip()
+        video_id = youtube_video_id(url)
+        if not video_id:
+            self._set_hint("That doesn't look like a YouTube link.", "error")
+            return
+        if not self.folder.is_dir():
+            self._set_hint(f"{self.folder} is not a folder — pick another.", "error")
+            return
+        self.result_url = url
+        # The caller resolves the final name — only it knows what other rows
+        # are already queued for the same folder.
+        self.result_slug = slugify(self.title_edit.text(), video_id)
+        self.result_folder = self.folder
+        self.settings.setValue(self.SETTINGS_KEY, str(self.folder))
+        self.accept()
+
+
 class SettingsWindow(QWidget):
     """Standalone preferences window: configure the drop zone, menu-bar mode,
     and start-at-login. Each control applies live through the AppController."""
@@ -1948,10 +2275,166 @@ class SettingsWindow(QWidget):
         self.login_check.toggled.connect(controller.set_start_at_login)
         root.addWidget(self.login_check)
 
+        self._build_markitdown_section(root)
+
         root.addStretch()
         hint = QLabel("Changes apply immediately.")
         hint.setObjectName("envLabel")
         root.addWidget(hint)
+
+        # Show whatever the controller already probed; otherwise ask for a probe
+        # and leave the rows reading "Checking…" until it lands.
+        if controller.env_report:
+            self.apply_report(controller.env_report, controller.foreign_markitdowns)
+        else:
+            controller.refresh_environment()
+
+    # ---- MarkItDown maintenance ----
+    def _build_markitdown_section(self, root):
+        """Status of the conversion engine, plus the repair that rebuilds it.
+
+        MarkItDown is a separate program on the user's device, so it can break
+        independently of tomd — a partial install converts CSV happily and
+        fails every PDF. Without somewhere to see that, the only symptom is
+        tomd looking broken.
+        """
+        self.worker = None
+        root.addWidget(self._section("MarkItDown"))
+
+        self.check_labels = {}
+        for key in ("markitdown", "formats", "python"):
+            row = QHBoxLayout()
+            icon_label = QLabel()
+            icon_label.setFixedSize(18, 18)
+            text_label = QLabel("Checking…")
+            text_label.setObjectName("checkItem")
+            text_label.setWordWrap(True)
+            row.addWidget(icon_label, alignment=Qt.AlignTop)
+            row.addWidget(text_label, stretch=1)
+            root.addLayout(row)
+            self.check_labels[key] = (icon_label, text_label)
+
+        self.foreign_check = QCheckBox()
+        self.foreign_check.setChecked(False)
+        self.foreign_check.hide()
+        root.addWidget(self.foreign_check)
+
+        self.repair_log = QPlainTextEdit()
+        self.repair_log.setObjectName("setupLog")
+        self.repair_log.setReadOnly(True)
+        self.repair_log.setMinimumHeight(160)
+        self.repair_log.hide()   # only takes up room once a repair is running
+        root.addWidget(self.repair_log)
+
+        button_row = QHBoxLayout()
+        self.recheck_button = QPushButton("Re-check")
+        self.recheck_button.setIcon(themed_icon("refresh", "#d6d8e0", 11))
+        self.recheck_button.clicked.connect(self.recheck)
+        self.repair_button = QPushButton("Repair MarkItDown")
+        self.repair_button.setObjectName("installButton")
+        self.repair_button.setIcon(themed_icon("wrench", "white", 13))
+        self.repair_button.setToolTip(
+            "Deletes tomd's MarkItDown environment and installs it again from "
+            "scratch, fetching Python first if this device hasn't got a usable one."
+        )
+        self.repair_button.clicked.connect(self.start_repair)
+        button_row.addWidget(self.recheck_button)
+        button_row.addStretch()
+        button_row.addWidget(self.repair_button)
+        root.addLayout(button_row)
+
+    def apply_report(self, report: dict, foreign: list):
+        """Render a probed environment into the status rows."""
+        def mark(key, present, text):
+            icon_label, text_label = self.check_labels[key]
+            name, color = ("check", COLOR_GREEN) if present else ("x", COLOR_RED)
+            icon_label.setPixmap(icon_pixmap(name, color, 13))
+            text_label.setText(text)
+
+        health = report.get("health")
+        exe = report.get("markitdown")
+        if not exe:
+            mark("markitdown", False, "markitdown CLI — not installed")
+            mark("formats", False, "Formats — nothing to check yet")
+        else:
+            version = (health or {}).get("version_str") or "unknown version"
+            mark("markitdown", bool(health and health["version_ok"]),
+                 f"markitdown {version} — {exe}")
+            missing = (health or {}).get("missing_features")
+            if missing is None:
+                mark("formats", False, "Formats — could not be checked")
+            elif missing:
+                mark("formats", False,
+                     "Formats — missing: " + ", ".join(missing) +
+                     ". Repair to install them.")
+            else:
+                mark("formats", True, "Formats — all available")
+
+        if report.get("python"):
+            mark("python", True, f"Python {report['python_version']} — {report['python']}")
+        else:
+            mark("python", False, "Python 3.10+ — not found (repair can fetch one)")
+
+        self._foreign = foreign
+        if foreign:
+            broken = [f for f in foreign if not f["healthy"]]
+            noun = "install" if len(foreign) == 1 else "installs"
+            self.foreign_check.setText(
+                f"Also remove markitdown from {len(foreign)} other Python {noun} "
+                f"on this computer"
+                + (f" ({len(broken)} broken)" if broken else "")
+            )
+            self.foreign_check.setToolTip(
+                "tomd didn't install these, so they're left alone unless you ask.\n"
+                "A broken one earlier on your PATH can shadow tomd's own copy.\n\n"
+                + "\n".join(
+                    f"{f['version']} — {f['interpreter']}"
+                    f"{'' if f['healthy'] else '  (missing formats)'}"
+                    for f in foreign
+                )
+            )
+            self.foreign_check.show()
+        else:
+            self.foreign_check.hide()
+
+    def recheck(self):
+        for icon_label, text_label in self.check_labels.values():
+            icon_label.clear()
+            text_label.setText("Checking…")
+        backend.invalidate_health_cache()
+        self.controller.refresh_environment()
+
+    def start_repair(self):
+        targets = [f["interpreter"] for f in getattr(self, "_foreign", [])] \
+            if self.foreign_check.isChecked() else []
+        self.repair_button.setEnabled(False)
+        self.recheck_button.setEnabled(False)
+        self.foreign_check.setEnabled(False)
+        self.repair_log.clear()
+        self.repair_log.show()
+        self.worker = RepairWorker(targets, self)
+        self.worker.log_line.connect(self.append_log)
+        self.worker.finished_setup.connect(self.on_repair_finished)
+        self.worker.start()
+
+    def append_log(self, line: str):
+        self.repair_log.appendPlainText(line)
+        self.repair_log.verticalScrollBar().setValue(
+            self.repair_log.verticalScrollBar().maximum()
+        )
+
+    def on_repair_finished(self, ok: bool, error: str):
+        self.repair_button.setEnabled(True)
+        self.recheck_button.setEnabled(True)
+        self.foreign_check.setEnabled(True)
+        if ok:
+            self.append_log("✓ MarkItDown reinstalled.")
+            self.controller.apply_markitdown(
+                str(backend.venv_executable("markitdown")), announce=True
+            )
+        else:
+            self.append_log(f"Repair failed: {error}")
+        self.recheck()
 
     def _section(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -1974,6 +2457,15 @@ class AppController:
         self.dock = DockWindow(self.window.main_page)
         self.settings_window = None
 
+        # The startup check is deliberately shallow so the window appears at
+        # once; the full health probe runs on a thread and re-points the queue
+        # if the CLI it picked turns out to be a broken one.
+        self.env_report = None
+        self.foreign_markitdowns = []
+        self._probe = None
+        self._warned_unhealthy = False
+        self.refresh_environment()
+
         # Hidden hot-corner that summons the ghost drop zone on drag-approach.
         self.sensor = EdgeSensor()
         self.sensor.approached.connect(self._on_sensor_approach)
@@ -1986,7 +2478,14 @@ class AppController:
 
         self.tray = self._build_tray()
         app.aboutToQuit.connect(self.window.main_page.shutdown)
+        app.aboutToQuit.connect(self._stop_probe)
         self._apply_startup()
+
+    def _stop_probe(self):
+        # Quitting within a second or two of launch would otherwise destroy the
+        # probe thread while it's still running its subprocesses.
+        if self._probe is not None and self._probe.isRunning():
+            self._probe.wait(3000)
 
     # ---- persisted getters ----
     def is_dropzone_enabled(self) -> bool:
@@ -2034,6 +2533,12 @@ class AppController:
         self.window.show()
         self.window.raise_()
         self.window.activateWindow()
+
+    def add_youtube(self):
+        # The dialog is modal to the main window, so it has to be visible —
+        # in menu-bar-only mode this is the one action with no other way in.
+        self.show_main_window()
+        self.window.main_page.add_youtube()
 
     def show_drop_zone(self):
         if not self.is_dropzone_enabled():
@@ -2092,6 +2597,44 @@ class AppController:
             self.dock._transient = False
             self._rearm_sensor()
 
+    # ---- environment ----
+    def refresh_environment(self):
+        """Re-probe MarkItDown on a worker thread. Cheap to call repeatedly."""
+        if self._probe is not None and self._probe.isRunning():
+            return
+        self._probe = EnvProbeWorker(self.window)
+        self._probe.probed.connect(self._on_env_probed)
+        self._probe.start()
+
+    def _on_env_probed(self, report: dict, foreign: list):
+        self.env_report = report
+        self.foreign_markitdowns = foreign
+        exe = report.get("markitdown")
+        if exe and exe != self.window.main_page.markitdown_exe:
+            # The shallow startup check may have settled on an install that
+            # can't actually convert anything; switch to the one that can.
+            self.apply_markitdown(exe)
+        missing = (report.get("health") or {}).get("missing_features") or []
+        self.window.main_page.set_youtube_available("youtube" not in missing)
+        if missing and not self._warned_unhealthy:
+            # Otherwise the first sign of a half-installed MarkItDown is a file
+            # that won't convert, which reads as tomd being broken.
+            self._warned_unhealthy = True
+            self.window.toast.show_message(
+                f"MarkItDown can't read {', '.join(missing[:3])} files — "
+                "run Repair in Settings",
+                kind="error", duration_ms=8000,
+            )
+        if self.settings_window is not None:
+            self.settings_window.apply_report(report, foreign)
+
+    def apply_markitdown(self, exe: str, announce: bool = False):
+        self.window.main_page.set_markitdown(exe)
+        self.window.pages.setCurrentWidget(self.window.main_page)
+        self.window.main_page.refresh_chrome()
+        if announce:
+            self.window.toast.show_message("MarkItDown is ready", kind="success")
+
     def open_settings(self):
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self)
@@ -2120,6 +2663,8 @@ class AppController:
         window_act.triggered.connect(self.show_main_window)
         zone_act = QAction("Open drop zone", menu)
         zone_act.triggered.connect(self.show_drop_zone)
+        youtube_act = QAction("Add YouTube video…", menu)
+        youtube_act.triggered.connect(self.add_youtube)
         settings_act = QAction("Settings…", menu)
         settings_act.triggered.connect(self.open_settings)
 
@@ -2134,6 +2679,7 @@ class AppController:
 
         menu.addAction(window_act)
         menu.addAction(zone_act)
+        menu.addAction(youtube_act)
         menu.addSeparator()
         menu.addAction(settings_act)
         menu.addAction(auto_act)

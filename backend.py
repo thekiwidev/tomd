@@ -693,7 +693,9 @@ def repair_markitdown(on_line, deep_targets=()) -> tuple[bool, str]:
     return install_markitdown(on_line)
 
 
-def convert_file(markitdown_exe: str, source, output: Path) -> tuple[bool, str]:
+def convert_file(
+    markitdown_exe: str, source, output: Path, expect_transcript: bool = False
+) -> tuple[bool, str]:
     """Convert one source with the device's markitdown CLI.
 
     `source` is a local path or a URL — the CLI takes either in the same
@@ -713,9 +715,41 @@ def convert_file(markitdown_exe: str, source, output: Path) -> tuple[bool, str]:
     except OSError as exc:
         return False, str(exc)
     if proc.returncode == 0 and output.exists():
+        if expect_transcript:
+            problem = _transcript_problem(output, proc.stderr or proc.stdout or "")
+            if problem:
+                # The file on disk is page furniture, not a transcript. Leaving
+                # it would be worse than failing: it looks like a finished job.
+                output.unlink(missing_ok=True)
+                return False, problem
         return True, str(output)
     message = (proc.stderr or proc.stdout or f"markitdown exited with code {proc.returncode}").strip()
     return False, _readable_error(message)
+
+
+def _transcript_problem(output: Path, stderr: str) -> str:
+    """Why a YouTube conversion produced no transcript, or "" if it did.
+
+    MarkItDown exits 0 even when the transcript fetch fails: its YouTube
+    converter gives up, the generic HTML converter handles the page instead,
+    and the result is a file of YouTube's footer links reported as a success.
+    Nothing in the exit code or the output path reveals that, so the file's
+    content is what gets checked.
+    """
+    try:
+        text = output.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return f"Could not read the converted file: {exc}"
+    if "### Transcript" in text:
+        return ""
+    hinted = _readable_error(stderr)
+    if hinted and hinted != stderr[-500:]:
+        return hinted           # a known cause (blocked, captions off, …)
+    if "# YouTube" not in text:
+        return ("YouTube returned the page but not the video — no transcript was "
+                "produced. This usually means YouTube is throttling this network.")
+    return ("MarkItDown read the video's details but could not fetch its "
+            "transcript. The video may have captions turned off.")
 
 
 _YOUTUBE_BLOCKED = (
@@ -732,6 +766,7 @@ _ERROR_HINTS = (
     ("IpBlocked", _YOUTUBE_BLOCKED),
     ("RequestBlocked", _YOUTUBE_BLOCKED),
     ("TooManyRequests", _YOUTUBE_BLOCKED),
+    ("too many requests", _YOUTUBE_BLOCKED),
     ("YouTubeRequestFailed", _YOUTUBE_BLOCKED),
     ("TranscriptsDisabled", "This video has captions turned off, so there's no transcript to fetch."),
     ("NoTranscriptFound", "This video has no transcript available in a supported language."),
@@ -752,9 +787,15 @@ def _readable_error(message: str) -> str:
     causes are translated into something actionable; otherwise the last
     non-empty line of the traceback (the exception itself) is what's shown.
     """
+    lowered = message.lower()
     for needle, hint in _ERROR_HINTS:
-        if needle in message:
-            return hint
+        if needle.lower() not in lowered:
+            continue
+        # "429 Too Many Requests" happens off YouTube too, where blaming
+        # YouTube would be actively misleading.
+        if hint is _YOUTUBE_BLOCKED and "youtube" not in lowered:
+            continue
+        return hint
 
     lines = [line for line in message.splitlines() if line.strip()]
     if not lines or "Traceback (most recent call last)" not in message:

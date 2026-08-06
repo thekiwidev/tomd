@@ -2,6 +2,13 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.10] — 2026-08-06
+
+### Fixed
+- **A failed YouTube transcript no longer looks like a successful conversion.** MarkItDown exits 0 even when it can't fetch a transcript: its YouTube converter gives up, the generic HTML converter picks the page up instead, and the `.md` you get is YouTube's footer — About, Press, Copyright, © Google — reported as a finished job. tomd now checks that a transcript actually came back, deletes the bogus file, and says what went wrong instead of leaving page furniture on disk under the video's name.
+- **YouTube links are normalised before conversion.** MarkItDown's YouTube converter only recognises URLs beginning exactly `https://www.youtube.com/watch?`, and reads the video id from the `v` parameter. A `youtu.be`, `/shorts/`, `/live/` or bare `youtube.com` link satisfied neither and fell through to the generic HTML converter without a word. Every accepted link shape is now rewritten to the canonical form.
+- A 429 from somewhere other than YouTube no longer blames YouTube in the error message.
+
 ## [0.1.9] — 2026-08-06
 
 ### Fixed
@@ -136,6 +143,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.10]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.10
 [0.1.9]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.9
 [0.1.8]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.8
 [0.1.7]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.7

@@ -346,6 +346,18 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:80].strip("-")
 
 
+def canonical_youtube_url(video_id: str) -> str:
+    """The one URL shape MarkItDown's YouTube converter recognises.
+
+    Its `accepts()` requires the URL to start with exactly
+    "https://www.youtube.com/watch?", and its transcript lookup reads the video
+    id out of the `v` query parameter. A youtu.be, /shorts/ or /live/ link
+    satisfies neither, and the failure is silent — the generic HTML converter
+    picks the page up instead and returns YouTube's footer as the "document".
+    """
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
 def slugify(text: str, fallback: str = "transcript") -> str:
     """'My Video: Part 2!' -> 'my-video-part-2'.
 
@@ -457,7 +469,8 @@ class QueueWorker(QThread):
                 break
             self.job_started.emit(row)
             ok, detail = backend.convert_file(
-                self.markitdown_exe, row.source_arg, row.output_for()
+                self.markitdown_exe, row.source_arg, row.output_for(),
+                expect_transcript=row.expect_transcript,
             )
             (self.job_done if ok else self.job_failed).emit(row, detail)
 
@@ -685,16 +698,20 @@ class FileRow(QFrame):
         ERROR: ("x", COLOR_RED),
     }
 
-    def __init__(self, source, display_name=None, output_path=None, parent=None):
+    def __init__(self, source, display_name=None, output_path=None,
+                 expect_transcript=False, parent=None):
         """`source` is a local Path or a URL string. `output_path` is only
         needed for sources with no directory of their own to sit next to (a
         YouTube link); local files keep deriving `<name>.md` beside themselves.
+        `expect_transcript` marks a job whose output has to be checked, because
+        MarkItDown reports a failed transcript fetch as a success.
         """
         super().__init__(parent)
         self.setObjectName("fileRow")
         self.source = source
         self.source_arg = str(source)       # what markitdown receives
         self.output_path = output_path      # None → derive from source
+        self.expect_transcript = expect_transcript
         self.md_path = None
         self.state = PENDING
         self.selected = False
@@ -1323,6 +1340,7 @@ class MainPage(QWidget):
         )
         row = self._append_row(FileRow(
             dialog.result_url, display_name=output.name, output_path=output,
+            expect_transcript=True,
         ))
         if self.auto_convert.isChecked() and self.markitdown_exe:
             self.enqueue_rows([row])
@@ -2205,7 +2223,8 @@ class YouTubeDialog(QDialog):
         if not self.folder.is_dir():
             self._set_hint(f"{self.folder} is not a folder — pick another.", "error")
             return
-        self.result_url = url
+        # Normalised, not as typed: see canonical_youtube_url.
+        self.result_url = canonical_youtube_url(video_id)
         # The caller resolves the final name — only it knows what other rows
         # are already queued for the same folder.
         self.result_slug = slugify(self.title_edit.text(), video_id)

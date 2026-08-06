@@ -718,15 +718,44 @@ def convert_file(markitdown_exe: str, source, output: Path) -> tuple[bool, str]:
     return False, _readable_error(message)
 
 
+_YOUTUBE_BLOCKED = (
+    "YouTube is refusing requests from this network — it returns a bot check "
+    "instead of the video page. Turn off any VPN, or try another network "
+    "(a phone hotspot usually works)."
+)
+
+# Failures whose real cause is invisible in the raw exception. The YouTube ones
+# matter most: the underlying error is an HTTP 429 whose message is a 200-char
+# Google challenge URL, which tells a user nothing about what to do next.
+_ERROR_HINTS = (
+    ("google.com/sorry", _YOUTUBE_BLOCKED),
+    ("IpBlocked", _YOUTUBE_BLOCKED),
+    ("RequestBlocked", _YOUTUBE_BLOCKED),
+    ("TooManyRequests", _YOUTUBE_BLOCKED),
+    ("YouTubeRequestFailed", _YOUTUBE_BLOCKED),
+    ("TranscriptsDisabled", "This video has captions turned off, so there's no transcript to fetch."),
+    ("NoTranscriptFound", "This video has no transcript available in a supported language."),
+    ("NoTranscriptAvailable", "This video has no transcript available."),
+    ("VideoUnavailable", "That video isn't available — check the link."),
+    ("AgeRestricted", "That video is age-restricted, so its transcript can't be fetched."),
+    ("MissingDependencyException", "MarkItDown is missing the dependency for this file type — "
+                                   "open Settings and run Repair MarkItDown."),
+)
+
+
 def _readable_error(message: str) -> str:
     """The useful line out of a markitdown failure.
 
     markitdown reports failures as Python tracebacks, and the row that shows
     them is one line tall. Tailing the raw text lands mid-frame — a user
-    hitting YouTube's rate limit saw "_status()" rather than the 429. The last
-    non-empty line of a traceback is the exception itself, which is the part
-    worth showing.
+    hitting YouTube's rate limit saw "_status()" rather than the 429. Known
+    causes are translated into something actionable; otherwise the last
+    non-empty line of the traceback (the exception itself) is what's shown.
     """
+    for needle, hint in _ERROR_HINTS:
+        if needle in message:
+            return hint
+
     lines = [line for line in message.splitlines() if line.strip()]
     if not lines or "Traceback (most recent call last)" not in message:
         return message[-500:]

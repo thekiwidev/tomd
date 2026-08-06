@@ -2,6 +2,21 @@
 
 All notable changes to tomd are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
+## [0.1.8] — 2026-08-06
+
+### Added
+- **Repair MarkItDown**, in Settings. Shows what the conversion engine actually is — version, which file formats are available, which Python — and rebuilds it on one click: tomd's private environment is deleted, MarkItDown's build caches are cleared, and everything is installed again from scratch, fetching a compatible Python first if the device hasn't got one. MarkItDown installs belonging to other Pythons on the machine are detected and listed; removing those is an opt-in checkbox, since tomd didn't create them.
+- The first-run setup screen offers the same repair when MarkItDown is present but can't convert anything. Previously its Install button greyed out in exactly that situation, leaving the page a dead end.
+- **YouTube transcripts.** A YouTube button in the toolbar, and "Add YouTube video…" in the menu bar. Paste a link and give it a title; the transcript is saved as `<title-slug>.md` — lowercase and hyphenated — into a folder you choose once and tomd remembers. The file name is previewed live as you type, and the title is optional (the video id is used instead).
+
+### Fixed
+- **A MarkItDown install is now verified, not just detected.** tomd used to accept any `markitdown` file that existed. When pip couldn't resolve `markitdown[all]` it would quietly backtrack to 0.0.2 — a release predating the `[all]` extra entirely — and report success, leaving a CLI that converted CSV and text happily and failed every PDF, Word, PowerPoint and Excel file. Installs are now checked for version *and* for each format's dependencies before being accepted.
+- Installs request `markitdown[all]>=0.1.0` and try the device's Pythons newest-first, stepping down only when one genuinely cannot produce a working CLI. This is a floor, not a pin — the newest Python and the newest MarkItDown are still preferred, and are used the moment they work.
+- A `markitdown` on PATH no longer wins automatically; it has to pass the same health check. A partially-installed system copy could previously shadow the working one tomd manages, which looked exactly like tomd being broken.
+- The `uv` bootstrap no longer dies with a TLS certificate error on python.org's macOS Framework builds, which ship no CA store until `Install Certificates.command` is run. It now falls back to curl and the system trust store.
+- Conversion failures show the real error — `HTTPError: 429 Client Error: Too Many Requests` — instead of whatever slice of a Python traceback happened to fall in the last 500 characters.
+- Startup no longer waits on the MarkItDown health check; it runs in the background and the window appears immediately.
+
 ## [0.1.7] — 2026-07-01
 
 ### Fixed
@@ -111,6 +126,7 @@ First public release.
 - macOS `.app` / `.dmg` and Windows `.exe` builds; release automation on `v*` tags
 - Landing page (GitHub Pages, `docs/`)
 
+[0.1.8]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.8
 [0.1.7]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.7
 [0.1.6]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.6
 [0.1.5]: https://github.com/thekiwidev/tomd/releases/tag/v0.1.5

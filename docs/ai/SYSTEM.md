@@ -53,9 +53,9 @@ modules:
     - { module: "domains", reason: "one small app; no separate domains" }
     - { module: "archive", reason: "nothing superseded at adoption" }
 verification_commands:
-  typecheck: "none"
-  lint: "none"
-  test: "none"
+  typecheck: "bun run typecheck && (cd src-tauri && cargo check)"
+  lint: "cd src-tauri && cargo clippy"
+  test: "uv run pytest && bun run test && (cd src-tauri && cargo test)"
   build: "bash scripts/build_macos.sh"
 customizations:
   - { id: "CUST-001", what: "testing rule overridden (RULE-ENG-001)", where: "ENGINEERING.md § 0, § 7" }

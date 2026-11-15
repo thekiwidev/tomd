@@ -3,14 +3,72 @@ doc: context/CHANGELOG
 purpose: Agent-facing compressed copy of ../../../CHANGELOG.md; never edited by hand
 authority: derived
 source: ../../../CHANGELOG.md
-source_sha256: c72d05117bdae3f148ab9ddb1cc55b162b4f09c2ba85971074a17b0b7b1ea994
+source_sha256: a3d3e67f09258aa1561c51d964b671738e845e0288afad5e8f22ec3ba78850c0
 generated_at: 2026-11-15
 register: caveman-ultra
 ---
 
 # CHANGELOG — agent-facing context (derived)
 
-Format: Keep a Changelog; SemVer. Newest first.
+Format: Keep a Changelog; SemVer. Newest first. From v0.2.0: versioned sub-headings (RULE-DOC-012).
+
+## v0.2.0 — 2026-11-16 — "Rebuilt on Tauri: quarter of size, three macOS defects gone, convert from Finder"
+
+tomd's window, menu bar icon and drop zone were rebuilt as Tauri v2 app with React UI; Python code that finds, installs and drives MarkItDown is unchanged and now runs behind it as background process. download drops from about 100 MB to 12 MB, and three defects reported on macOS 27 (menu bar icon closing app, dead corner where drop zone docks, broken row before first conversion) are gone with Qt layer that caused them. New: convert files from Finder's right-click menu, and choose how drop zone gets out of way during drag. macOS only; Windows stays on 0.1.11.
+
+### v0.2.0 — Added
+
+- Convert to Markdown from Finder. Right-click one or more supported files, Quick Actions, "Convert to Markdown". No window opens: small toast at drop zone's position shows "Converting name" (or "Converting 2 of 5"), then "Done", and disappears. `.md` is written beside file and file also appears in tomd's list, where Copy, Reveal and retry are available. Works when tomd is not running (it starts in menu bar). switch in Settings removes or restores entry. file dropped on tomd's Dock icon converts same way.
+- "When drag starts" setting for drop zone: Show drop zone (as before, default), Shake to hide (shake pointer and it hides for that drag), Start small (small pill that grows when file comes near), Hold Option to hide.
+- drop zone has button that opens main window, and Run button when files are waiting.
+
+### v0.2.0 — Changed
+
+- app is Tauri v2 shell with React + TypeScript + Tailwind UI. Download 12 MB, installed 24 MB (0.1.11: about 100 MB).
+- drop zone appears moment file drag starts anywhere on screen and leaves when file is dropped elsewhere. It used to appear only when drag reached its corner.
+- "Start at login" is handled by system login-item plugin; login item set by 0.1.x is taken over on first launch.
+- Settings open inside main window instead of separate window.
+- Preferences are stored in new place. Settings chosen in 0.1.x (drop zone position, auto-convert, menu bar only, YouTube folder) are not carried over and need setting once.
+- macOS only for now. Windows build remains 0.1.11; website sends Windows visitors to that release.
+
+### v0.2.0 — Fixed
+
+- Clicking menu bar icon closed app (macOS 27). Everyone on macOS 27 was affected. Cause: Qt's macOS plugin read `clickCount` from event that is not mouse event when status-item menu opened, and AppKit aborted process (crash reports of 2026-11-15; NOTES N-001). Not caught because nothing tested tray and fault is inside Qt, on macOS version newer than last release. Fix: menu is native Tauri tray menu; no UI toolkit handles its events. Regression coverage: none automated (menu bar click cannot be scripted here); confirmed by hand by owner.
+- screen corner where drop zone docks could not be clicked, in any app, while drop zone feature was on. Cause: invisible always-on-top window sat there permanently to notice approaching drag, and window that can receive drag also takes clicks (NOTES N-002); 0.1.7 fix changed only Qt's own event handling. Fix: nothing is on screen while idle; watcher polls mouse button and system drag pasteboard and shows drop zone only while files are being dragged. Regression coverage: none automated; confirmed by hand by owner.
+- dropped file showed row with no name and stray box until Run was pressed (auto-convert off). Cause, inferred from code: name label was sized before layout had width (NOTES N-003). Fix: row is plain flex layout in new UI. Regression coverage: none; pending state has not yet been confirmed by hand.
+
+### v0.2.0 — Removed
+
+- PySide6 application: `app.py`, `native.py`, `dev.py`, and `pyside6`, `pyobjc-framework-Cocoa` and `watchfiles` dependencies.
+- Windows job in release workflow.
+- hot-corner that summoned drop zone (replaced by drag watcher).
+
+### v0.2.0 — How it works
+
+- Three parts. shell (`src-tauri/`, Rust) owns windows, menu bar icon, settings, drag watcher and Finder entry. UI (`src/`, React) runs in shell's webviews. sidecar (`sidecar.py` over `backend.py` and `links.py`) does everything that touches MarkItDown; shell starts it and passes JSON lines both ways (`sidecar.rs`, `src/ipc.ts`). release build carries PyInstaller-frozen sidecar in its resources; debug build runs `sidecar.py` from project's `.venv`.
+- One queue. `src/queue.ts` is pure reducer living in main window; `src/useQueue.ts` converts one row at time. drop zone and toast are separate windows that hold no queue: they send events to main window and draw state it broadcasts.
+- Drag watcher (`drag_watch.rs`): every 120 ms, if left button is down and drag pasteboard's change count is new and carries files, drop zone is shown without activating tomd; while drag is on it polls at 30 ms to apply chosen drag mode; button up hides zone unless drop pinned it.
+- Finder entry (`quick_action.rs`): generated Automator service bundle in `~/Library/Services` whose shell line is `open -g -"<tomd.app>" "$@" --args --background`. macOS delivers files as open-document event (`RunEvent::Opened`), also to tomd that is already running; `--background` stops fresh launch from showing its window. Rows added this way are flagged `background`, converted at once, and reported by toast.
+
+### v0.2.0 — Notes
+
+- unsigned app cannot add top-level item to Finder's right-click menu; that needs signed Finder extension. Signing, notarisation and that item are deferred.
+- `.ipynb` and `.msg` files have no system file type, so Finder entry is not offered for them; drag and drop still converts them. entry is offered for every image and audio type.
+- app that quits other apps with no open window (found on owner's Mac: Vorssaint) will quit tomd that was started in background by Finder entry, after it has converted. Excluding tomd there keeps it in menu bar.
+- build is for architecture of machine that builds it (Apple Silicon on owner's Mac and on GitHub's `macos-latest`).
+
+### v0.2.0 — Files changed
+
+- Added: `src-tauri/` (`src/{lib,settings,sidecar,tray,windows,drag_watch,shake,quick_action,main}.rs`, `quick-action/`, `capabilities/`, `icons/`, `Cargo.toml`, `tauri.conf.json`), `src/` (`{MainWindow,DropZone,Toast,FileRow,SetupPage,SettingsPage,YouTubeDialog,LogBox,ui,main}.tsx`, `{queue,queue.test,useQueue,environment,ipc,settings,dragIcon}.ts`, `app.css`), `sidecar.py`, `links.py`, `tests/`, `package.json`, `bun.lock`, `index.html`, `vite.config.ts`, `tsconfig*.json`.
+- Changed: `scripts/build_macos.sh`, `.github/workflows/release.yml`, `docs/index.html`, `README.md`, `CONTRIBUTING.md`, `pyproject.toml`, `uv.lock`, `.gitignore`.
+- Removed: `app.py`, `native.py`, `dev.py`.
+
+### v0.2.0 — Verification
+
+- Automated, all passing on 2026-11-15: `uv run pytest` (25), `bun run test` (10), `bun run typecheck`, `cargo clippy`, `cargo test` (8), `bash scripts/build_macos.sh` (exit 0; app 24 MB, DMG 12 MB).
+- Release app, by agent: starts its frozen sidecar; two files sent with `open -g -a` converted, with tomd running and with tomd quit; toast window captured showing "2 converted" and gone afterwards; main window captured showing both rows done.
+- By owner, by hand: menu bar menu without crash; corner clickable; file drag summons drop zone; drop, Copy, drag out, Reveal, open main window; Finder entry converts PDF with toast.
+- Not verified: three new drag modes; Finder switch in Settings; failure and setup-needed toasts; pending-row fix; setup page (MarkItDown was installed throughout); Settings switches, Repair and YouTube dialog one by one; installing from DMG; GitHub Actions workflow; Intel Macs.
 
 ## [0.1.11] — 2026-08-06
 

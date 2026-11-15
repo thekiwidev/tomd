@@ -35,15 +35,15 @@ Decided by the owner on 2026-11-15.
 
 ## 1. Language and type posture
 
-Python 3.12 (`requires-python = ">=3.12"`), type hints on public functions, no type checker configured. The Tauri rewrite adds Rust and TypeScript (strict); their posture is recorded here when that code lands.
+Three languages. Python 3.12 (`requires-python = ">=3.12"`) for the sidecar: type hints on public functions, no type checker configured, standard library only. TypeScript for the UI (`src/`): `strict`, checked with `bun run typecheck`; React function components; state changes through pure functions (`src/queue.ts`). Rust for the shell (`src-tauri/`): `cargo clippy` clean with no `allow` attributes; `unsafe` only at the AppKit boundary and each block carries a `SAFETY` comment.
 
 ## 2. Naming
 
-Python: `snake_case` functions, `PascalCase` classes, module-level `UPPER_CASE` constants, a leading underscore for module-private helpers (as in `backend.py`).
+Python: `snake_case` functions, `PascalCase` classes, module-level `UPPER_CASE` constants, a leading underscore for module-private helpers (as in `backend.py`). TypeScript: `PascalCase.tsx` for a component file, `camelCase.ts` for anything else; no two files may differ only by case (the macOS filesystem treats them as one). Rust: standard `snake_case` modules. Setting keys and event names are `snake_case` and `kebab-case` strings shared by Rust and TypeScript (`dropzone_enabled`, `queue-changed`).
 
 ## 3. Module boundaries
 
-`backend.py` holds everything that touches the system (finding Python, installing and repairing MarkItDown, running a conversion) and imports only the standard library; it must stay free of any UI import so it can run as a sidecar. UI code calls it and never shells out itself.
+`backend.py` holds everything that touches MarkItDown and Python (finding Python, installing and repairing MarkItDown, running a conversion) and imports only the standard library. The UI (`src/`) never touches the file system or starts a process: it calls the sidecar through `src/ipc.ts` and the shell through Tauri commands. The shell (`src-tauri/`) owns windows, the menu bar icon, settings and everything AppKit; it moves sidecar lines without interpreting them. The conversion queue exists once, in the main window. Detail: `ARCHITECTURE.md`.
 
 ## 4. Validation and errors
 

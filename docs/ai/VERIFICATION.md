@@ -13,12 +13,12 @@ last_reviewed: "2026-11-15"
 
 | Gate | Command | Precondition |
 | --- | --- | --- |
-| Typecheck | none configured | — |
-| Lint | none configured | — |
-| Test | none configured (the repository has no tests) | — |
-| Build | `bash scripts/build_macos.sh` | macOS, `uv` on PATH |
+| Typecheck | `bun run typecheck` and `cargo check` (in `src-tauri/`) | `bun install` |
+| Lint | `cargo clippy` (in `src-tauri/`) | — |
+| Test | `uv run pytest`, `bun run test` and `cargo test` (in `src-tauri/`) | `uv sync` |
+| Build | `bash scripts/build_macos.sh` (release app and DMG, with the frozen sidecar) · `bun run tauri build --debug --bundles app` (debug app, runs `sidecar.py` from `.venv`) | macOS, `uv` on PATH; a `dist-ui/` directory must exist for `cargo check` |
 
-State at adoption (2026-11-15): the PySide6 app has no automated gate except the build. The Tauri rewrite (`plans/active/tauri-rewrite.md`) adds `uv run pytest`, `bun run test`, `bun run tsc --noEmit` and `cargo check`; each is added to this table in the task that creates it, never before it exists.
+State on 2026-11-15 (tomd 0.2.0): `uv run pytest` covers `links.py` and `sidecar.py`; `bun run test` (vitest) covers the queue reducer `src/queue.ts`; `cargo test` covers anchor geometry, settings validation, the shake detector and the Quick Action generator. Windows, the tray, the drop zone and drag and drop have no automated coverage (§ 2).
 
 All gates run before any task is reported complete; the report shows each command and its actual result.
 

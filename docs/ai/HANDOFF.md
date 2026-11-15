@@ -11,7 +11,7 @@ last_reviewed: "2026-11-15"
 
 ## Status
 
-**ACTIVE — Tauri rewrite (tomd 0.2.0) — see below.**
+**ACTIVE — tomd 0.2.0 is built and documented; owner hand checks, commit and release remain — see below.**
 
 <!-- When active, one block per task, newest first (RULE-DOC-016):
 
@@ -33,21 +33,21 @@ last_reviewed: "2026-11-15"
 Update this block as you go on long tasks (RULE-DOC-014); an interrupted session must still leave a usable baton.
 -->
 
-## Tauri rewrite (tomd 0.2.0)
+## tomd 0.2.0: release and remaining hand checks
 
-**Objective:** Replace the PySide6 UI with a Tauri v2 shell and a React UI, keeping `backend.py` as a frozen Python sidecar; macOS first. Must fix the three reported defects (NOTES N-001, N-002, N-003) and cut the app from about 100 MB.
-**Why:** The owner wants a lightweight, modern app, and all three defects are in the Qt layer.
-**Approach:** [`plans/active/tauri-rewrite.md`](./plans/active/tauri-rewrite.md); decision record [`decisions/ADR-001-tauri-shell-python-sidecar.md`](./decisions/ADR-001-tauri-shell-python-sidecar.md).
-**Decisions and rejected alternatives:** in ADR-001.
-**Findings:** root causes of the three defects, in NOTES N-001 to N-003.
+**Objective:** Release tomd 0.2.0 for macOS: the Tauri v2 app over the Python sidecar, with the Finder Quick Action, the status toast and the drag modes.
+**Why:** The owner wanted a lightweight, modern app; the three defects reported on 0.1.11 were in the Qt layer (NOTES N-001 to N-003).
+**Approach:** done; see [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`plans/completed/tauri-rewrite.md`](./plans/completed/tauri-rewrite.md), [`plans/active/finder-convert.md`](./plans/active/finder-convert.md), PRD [`prd/prd-finder-convert.md`](./prd/prd-finder-convert.md), [`decisions/ADR-001-tauri-shell-python-sidecar.md`](./decisions/ADR-001-tauri-shell-python-sidecar.md).
+**Decisions and rejected alternatives:** ADR-001; per attempt in [`LOG.md`](./LOG.md) L-003 to L-016.
+**Findings:** CHANGELOG v0.2.0 → Notes; MEMORY → Gotchas.
 **Current branch (read-only; never create/switch):** `dev`
-**Work completed:** plan approved by the owner on 2026-11-15; kiwi AI system adopted (T0).
-**Files changed:** only the AI system files (`docs/ai/**`, `MEMORY.md`, entry points, `.caveman.json`).
-**Verification:** `kiwi doctor --project`.
-**Remaining work:** T1 to T5 of the plan; no application code has been written.
-**Known issues:** the drag-pasteboard detection in T2 is unverified on macOS 27 (plan risk 1).
-**Owner decisions needed:** none open.
-**Next action:** start T1 of the plan: create `links.py` by moving the pure helpers out of `app.py:301-431`, then `sidecar.py` and its pytest tests.
+**Work completed:** all code and documentation for 0.2.0 (plan `tauri-rewrite` T0 to T5; plan `finder-convert` F1 to F7). `/Applications/tomd.app` on the owner's Mac is the release build from `dist/`.
+**Files changed:** everything is uncommitted on `dev`; the list is CHANGELOG v0.2.0 → Files changed, plus `docs/ai/**`, `MEMORY.md`, `CHANGELOG.md`.
+**Verification:** CHANGELOG v0.2.0 → Verification (what passed, what the owner confirmed, what is not verified).
+**Remaining work:** (1) Owner hand checks not yet reported: the drag modes Shake to hide, Start small and Hold Option to hide; the "Convert to Markdown in Finder" switch; a failing file showing "Failed" in the toast; a file dropped on the main window with auto-convert off showing its name and select box (closes N-003); Settings switches, Repair and the YouTube dialog. (2) When those pass: move `plans/active/finder-convert.md` to `completed/`, set N-003 to resolved, put the release date in the CHANGELOG heading. (3) Owner: commit, tag `v0.2.0`, push (the tag triggers `release.yml`, which has not been run with the new script).
+**Known issues:** shake thresholds in `src-tauri/src/shake.rs` are a first guess. On the owner's Mac, Vorssaint quits a tomd that has no window (MEMORY → Gotchas). `scripts/build_windows.ps1` and `assets/make_icon.py` are broken; `docs/index.html` has two stale claims (MEMORY → Open Questions).
+**Owner decisions needed:** the three items under MEMORY → Open Questions; whether and when to enrol for signing (LOG L-013).
+**Next action:** wait for the owner's hand-check results; a failure is a new LOG entry (attempt 2 of the task it belongs to) and a fix. With no failures, do Remaining work (2).
 
 ## Git status
 

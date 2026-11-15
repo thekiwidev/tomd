@@ -44,4 +44,4 @@ The owner wants the app lightweight and modern; the PySide6 bundle is about 100 
 
 ## Related documents
 
-[`../plans/active/tauri-rewrite.md`](../plans/active/tauri-rewrite.md) · [`../NOTES.md`](../NOTES.md) N-001 to N-003 · [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
+[`../plans/completed/tauri-rewrite.md`](../plans/completed/tauri-rewrite.md) · [`../NOTES.md`](../NOTES.md) N-001 to N-003 · [`../ARCHITECTURE.md`](../ARCHITECTURE.md)

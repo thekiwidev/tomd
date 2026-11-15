@@ -26,7 +26,7 @@ last_reviewed: "2026-11-15"
 
 | Document | Read it when |
 | --- | --- |
-| `docs/ai/prd/` (none yet), [`../../README.md`](../../README.md), [`../specs/`](../specs/) | the task touches product behaviour — the authoritative product text |
+| [`prd/prd-finder-convert.md`](./prd/prd-finder-convert.md) (approved 2026-11-15), [`../../README.md`](../../README.md), [`../specs/`](../specs/) | the task touches product behaviour — the authoritative product text |
 | [`plans/INDEX.md`](./plans/INDEX.md) | starting any task — find the active plan and its acceptance criteria |
 | [`decisions/INDEX.md`](./decisions/INDEX.md) | a choice feels open — it may already be decided |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | changing structure, boundaries, persistence, integrations |

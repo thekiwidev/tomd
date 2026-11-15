@@ -2252,14 +2252,14 @@
       );
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 
-      // Default download links point at the macOS build; swap to the Windows
-      // build for visitors whose user agent says Windows. Asset filenames
-      // must match .github/workflows/release.yml.
+      // Default download links point at the latest macOS build. Windows is
+      // still on 0.1.11 (the last release built for it), so visitors whose
+      // user agent says Windows get that release's installer, not "latest".
       if (/Win/i.test(navigator.userAgent || navigator.platform || "")) {
         document.querySelectorAll("[data-download-btn]").forEach((btn) => {
-          btn.href = btn.href.replace("tomd.dmg", "tomd.exe");
+          btn.href = "https://github.com/thekiwidev/tomd/releases/download/v0.1.11/tomd.exe";
           const label = btn.querySelector("[data-download-label]");
-          if (label) label.textContent = label.textContent.replace("macOS", "Windows");
+          if (label) label.textContent = label.textContent.replace("macOS", "Windows (0.1.11)");
         });
       }
     </script>

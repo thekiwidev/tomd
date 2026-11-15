@@ -14,3 +14,9 @@ wheels/
 assets/tomd.iconset/
 assets/tomd.icns
 .DS_Store
+
+# Tauri / frontend
+node_modules/
+dist-ui/
+src-tauri/target/
+src-tauri/gen/schemas/

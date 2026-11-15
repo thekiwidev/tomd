@@ -15,9 +15,10 @@ Plans say *what, in what order, and what "done" means*. Mark a task complete onl
 
 | Plan | Role |
 | --- | --- |
-| [`active/tauri-rewrite.md`](./active/tauri-rewrite.md) | tomd 0.2.0: replace the PySide6 UI with Tauri v2 + React, keep `backend.py` as a sidecar, macOS first |
+| [`active/finder-convert.md`](./active/finder-convert.md) | Finder Quick Action "Convert to Markdown", status toast, drag-mode setting (PRD `prd-finder-convert`); approved 2026-11-15; F1 to F7 done by the agent; active until the owner's remaining hand checks |
 
 ## Completed
 
 | Plan | What it delivered |
 | --- | --- |
+| [`completed/tauri-rewrite.md`](./completed/tauri-rewrite.md) | tomd 0.2.0 (2026-11-15): Tauri v2 + React app over the Python sidecar, macOS; 24 MB app, 12 MB DMG; defects N-001 and N-002 resolved |

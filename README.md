@@ -122,7 +122,7 @@ When the batch finishes, every row shows a green check and a toast confirms the 
 Grab the latest build from [Releases](../../releases):
 
 - **macOS** — see below.
-- **Windows** — download `tomd.exe` and run it.
+- **Windows** — the Windows build is still version 0.1.11: download `tomd.exe` from the [v0.1.11 release](../../releases/tag/v0.1.11) and run it. Versions from 0.2.0 are macOS only for now.
 
 ### macOS — Gatekeeper workaround
 
@@ -149,13 +149,14 @@ Either option is a one-time step — subsequent launches open normally.
 
 ## Run from source
 
-Requires [uv](https://docs.astral.sh/uv/).
+macOS only. Requires [uv](https://docs.astral.sh/uv/), [bun](https://bun.sh/) and a [Rust toolchain](https://rustup.rs/).
 
 ```bash
 git clone https://github.com/thekiwidev/tomd.git
 cd tomd
 uv sync
-uv run python app.py
+bun install
+bun run tauri dev
 ```
 
 ## Build the app yourself
@@ -163,12 +164,9 @@ uv run python app.py
 ```bash
 # macOS — produces dist/tomd.app and dist/tomd.dmg
 bash scripts/build_macos.sh
-
-# Windows — produces dist\tomd.exe
-pwsh scripts/build_windows.ps1
 ```
 
-Tagged pushes (`v*`) build both platforms on GitHub Actions and attach them to a release automatically.
+Tagged pushes (`v*`) build the macOS app on GitHub Actions and attach it to a release automatically.
 
 ---
 
